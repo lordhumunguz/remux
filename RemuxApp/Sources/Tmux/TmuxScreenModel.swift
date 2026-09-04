@@ -22,6 +22,9 @@ final class TmuxScreenModel: ObservableObject {
 
     @Published private(set) var session: TmuxTerminalSession?
     @Published private(set) var startupFailure: String?
+    /// Highest-priority pane agent state in this session, for the session
+    /// switcher's urgency ordering and badges.
+    @Published private(set) var sessionAgentState: TmuxPaneAgentState = .idle
 
     /// The reducer's expectations: the target this session connects to.
     var runtimeConnectionTarget: TmuxConnectionTarget { target }
@@ -53,6 +56,7 @@ final class TmuxScreenModel: ObservableObject {
     private var pendingForegroundInactiveReason: TerminalDisconnectReason?
     private var stateObservation: AnyCancellable?
     private var transportFailureObservation: AnyCancellable?
+    private var agentInfoObservation: AnyCancellable?
     private var stopped = false
     private var initialViewport: TmuxControlViewport?
     private var lastSubmittedClientSize: TmuxSessionController.ClientSize?
@@ -113,7 +117,8 @@ final class TmuxScreenModel: ObservableObject {
             },
             paneViewTheme: { [weak self, target] in
                 self?.currentTerminalSettings.theme ?? target.terminalSettings.theme
-            }
+            },
+            agentStateNotifier: TmuxAgentStateNotifier.shared
         )
         self.session = session
         terminalScreenAdapter.activate(
@@ -148,6 +153,13 @@ final class TmuxScreenModel: ObservableObject {
             .compactMap { $0 }
             .sink { [weak self] failure in
                 self?.report(.disconnected(failure))
+            }
+
+        agentInfoObservation = session.$paneAgentInfo
+            .map { TmuxPaneAgentState.sessionAggregate(of: $0.values.lazy.map(\.state)) }
+            .removeDuplicates()
+            .sink { [weak self] aggregate in
+                self?.sessionAgentState = aggregate
             }
 
         GhosttyRuntimeTrace.flowEventIfActive(flow, event: "model.session.created")
@@ -337,11 +349,16 @@ final class TmuxScreenModel: ObservableObject {
         }
     }
 
+    func setSessionPresented(_ presented: Bool) {
+        session?.setPresented(presented)
+    }
+
     func stop() async {
         guard !stopped else { return }
         stopped = true
         stateObservation = nil
         transportFailureObservation = nil
+        agentInfoObservation = nil
         terminalScreenAdapter.prepareForSessionShutdown()
         terminalScreenAdapter.invalidate()
         if let session {

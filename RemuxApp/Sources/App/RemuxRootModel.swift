@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 
 enum SSHPublicKeyInstallDraftError: Error, Equatable, LocalizedError {
@@ -26,23 +27,27 @@ struct ActiveTerminalSession: Identifiable, Equatable, Sendable {
     var instanceID: UUID
     var runtimeState: TerminalRuntimeState
     var automaticReconnectAttemptedSources: Set<TerminalReconnectSource>
+    var agentState: TmuxPaneAgentState
 
     init(
         target: TmuxConnectionTarget,
         instanceID: UUID = UUID(),
         runtimeState: TerminalRuntimeState = .connecting,
-        automaticReconnectAttemptedSources: Set<TerminalReconnectSource> = []
+        automaticReconnectAttemptedSources: Set<TerminalReconnectSource> = [],
+        agentState: TmuxPaneAgentState = .idle
     ) {
         self.id = target.workspace.id
         self.target = target
         self.instanceID = instanceID
         self.runtimeState = runtimeState
         self.automaticReconnectAttemptedSources = automaticReconnectAttemptedSources
+        self.agentState = agentState
     }
 
     mutating func replaceRuntime(source: TerminalReconnectSource) {
         instanceID = UUID()
         runtimeState = .reconnecting(source)
+        agentState = .idle
         if !source.isAutomatic {
             automaticReconnectAttemptedSources.removeAll()
         }
@@ -275,7 +280,9 @@ final class RemuxRootModel: ObservableObject {
         case failed(String)
     }
 
-    @Published private(set) var state: State = .loading
+    @Published private(set) var state: State = .loading {
+        didSet { propagateTerminalPresentation() }
+    }
     @Published private(set) var connectionSetup: ConnectionSetupState?
     @Published private(set) var library: ConnectionLibrarySnapshot = .empty
     @Published private(set) var terminalSettings: TerminalSettings = .default
@@ -306,6 +313,7 @@ final class RemuxRootModel: ObservableObject {
     private let librarySSHPrewarmCoordinator: RemuxLibrarySSHPrewarmCoordinator
     private let terminalScreenModelFactory: TerminalScreenModelFactory
     private var terminalScreenModels: [TerminalRuntimeAttemptKey: TmuxScreenModel] = [:]
+    private var agentStateObservations: [TerminalRuntimeAttemptKey: AnyCancellable] = [:]
     private var currentAppLifecyclePhase: GhosttyAppLifecyclePhase?
     private var currentSetupID: UUID?
     private var activeSetupAction: SetupAction?
@@ -1451,7 +1459,7 @@ final class RemuxRootModel: ObservableObject {
     func disconnectActiveSession(_ id: SavedWorkspace.ID) {
         // Fallback selection follows the order users see in the switcher
         // and library, not internal activation order.
-        let displayedIndex = RemuxActiveSessionCollection.sortedForDisplay(activeSessions)
+        let displayedIndex = RemuxActiveSessionCollection.sortedForDisplayByAgentState(activeSessions)
             .firstIndex { $0.id == id }
         closePreparedTransport(for: id)
         stopTerminalScreenModels(workspaceID: id)
@@ -1461,7 +1469,7 @@ final class RemuxRootModel: ObservableObject {
             return
         }
 
-        let remaining = RemuxActiveSessionCollection.sortedForDisplay(activeSessions)
+        let remaining = RemuxActiveSessionCollection.sortedForDisplayByAgentState(activeSessions)
         if let displayedIndex, !remaining.isEmpty {
             state = .terminal(remaining[min(displayedIndex, remaining.count - 1)].id)
             return
@@ -2012,6 +2020,40 @@ final class RemuxRootModel: ObservableObject {
             carriedClientSize
         )
         terminalScreenModels[key] = model
+        agentStateObservations[key] = model.$sessionAgentState
+            .removeDuplicates()
+            .sink { [weak self] agentState in
+                self?.applyAgentState(
+                    agentState,
+                    workspaceID: session.id,
+                    instanceID: session.instanceID
+                )
+            }
+        propagateTerminalPresentation()
+    }
+
+    private func applyAgentState(
+        _ agentState: TmuxPaneAgentState,
+        workspaceID: SavedWorkspace.ID,
+        instanceID: UUID
+    ) {
+        guard let index = activeSessions.firstIndex(where: {
+            $0.id == workspaceID && $0.instanceID == instanceID
+        }), activeSessions[index].agentState != agentState else { return }
+        activeSessions[index].agentState = agentState
+    }
+
+    /// Tells every live screen model whether its session is the one on
+    /// screen, so a blocked-agent alert is only suppressed for the pane the
+    /// user is actually looking at.
+    private func propagateTerminalPresentation() {
+        let selectedID: SavedWorkspace.ID? = {
+            guard case .terminal(let id) = state else { return nil }
+            return id
+        }()
+        for (key, model) in terminalScreenModels {
+            model.setSessionPresented(key.workspaceID == selectedID)
+        }
     }
 
     private func applyCurrentAppLifecyclePhase(to session: ActiveTerminalSession) {
@@ -2045,6 +2087,7 @@ final class RemuxRootModel: ObservableObject {
         let removed = terminalScreenModels.filter(shouldStop)
         for key in removed.keys {
             terminalScreenModels[key] = nil
+            agentStateObservations[key] = nil
         }
         for model in removed.values {
             // Teardown ordering (surface unregister/free before terminal

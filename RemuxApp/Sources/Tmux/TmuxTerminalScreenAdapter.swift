@@ -74,6 +74,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
     /// `willSet`, so reading the property inside a sink returns the previous
     /// snapshot and the projection lags one topology update behind.
     private var latestTopology: TmuxSessionController.TopologySnapshot?
+    private var latestPaneAgentInfo: [TmuxPaneID: TmuxPaneAgentInfo] = [:]
     private var identities = TmuxTerminalIdentityRegistry()
 
     private var managedSurfacesByPaneID: [TmuxPaneID: GhosttyManagedSurface] = [:]
@@ -151,6 +152,9 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         session.$lastFailedRequest
             .sink { [weak self] request in
                 guard let request else { return }
+                // setPaneOption carries the unseen-mark acknowledgement;
+                // its failure is not user-actionable.
+                guard request != .setPaneOption else { return }
                 if request == .selectPane {
                     self?.cancelPendingPaneFocus()
                 }
@@ -174,6 +178,13 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         session.$transportFailure
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &subscriptions)
+        session.$paneAgentInfo
+            .sink { [weak self] infos in
+                guard let self else { return }
+                self.latestPaneAgentInfo = infos
+                self.objectWillChange.send()
+            }
+            .store(in: &subscriptions)
     }
 
     func invalidate() {
@@ -192,6 +203,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         viewportStabilityHandler = nil
         latestViewportMeasurement = nil
         latestTopology = nil
+        latestPaneAgentInfo = [:]
         cachedTopologySnapshot = Self.emptyTopologySnapshot
     }
 
@@ -259,7 +271,8 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
                         : normalFrame,
                     isFocused: isFocused,
                     tmuxCurrentCommand: pane.currentCommand,
-                    tmuxCurrentPath: pane.currentPath
+                    tmuxCurrentPath: pane.currentPath,
+                    agentInfo: latestPaneAgentInfo[pane.id] ?? .idle
                 )
             }
 
@@ -480,6 +493,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         case .copyMode: "copy mode"
         case .setClientSize: "resize"
         case .sendInput: "input"
+        case .setPaneOption: "set pane option"
         }
     }
 }
@@ -705,6 +719,7 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         }
         session?.prepareForPaneSelection(paneID: paneID)
         controller.requestSelectPane(paneID: paneID)
+        controller.requestClearPaneUnseenMark(paneID: paneID)
         return .queued
     }
 
@@ -762,6 +777,11 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
             windowID: targetWindow.id,
             preferredPaneID: targetWindow.activePaneID
         )
+        // Selecting a window views its active pane; acknowledge its unseen
+        // mark just like the dotfiles' after-select-window hook does.
+        if let viewedPaneID = targetWindow.activePaneID {
+            controller.requestClearPaneUnseenMark(paneID: viewedPaneID)
+        }
     }
 
     func createTmuxWindow() -> GhosttyTmuxModelActionOutcome {

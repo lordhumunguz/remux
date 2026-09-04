@@ -13,12 +13,14 @@ final class TmuxTerminalSession: ObservableObject {
     @Published private(set) var lastFailedRequest: TmuxSessionController.Request?
     @Published private(set) var transportFailure: TerminalDisconnectReason?
     @Published private(set) var viewportMeasurement: GhosttyTerminalViewportMeasurement?
+    @Published private(set) var paneAgentInfo: [TmuxPaneID: TmuxPaneAgentInfo] = [:]
 
     private let app: ghostty_app_t
     private(set) var controller: TmuxSessionController!
     private let link: TmuxSessionLink
     private let baseSurfaceConfig: () -> ghostty_terminal_surface_config_s
     private let paneViewTheme: () -> TerminalTheme
+    private let agentStateNotifier: (any TmuxAgentStateNotifying)?
 
     typealias PaneSurfaceCreator = @MainActor (
         ghostty_app_t,
@@ -39,6 +41,9 @@ final class TmuxTerminalSession: ObservableObject {
     private var creatingPaneIDs: Set<TmuxPaneID> = []
     private var failedCreationPaneIDs: Set<TmuxPaneID> = []
     private var isAppActive = true
+    private var isPresented = false
+    private var agentBlockedTracker = TmuxAgentBlockedTracker()
+    private var agentMetadataPollTimer: Timer?
     private var didStartLink = false
     private var linkIsActive = false
     private var isShutDown = false
@@ -53,12 +58,14 @@ final class TmuxTerminalSession: ObservableObject {
         transport: any TmuxControlTransport,
         baseSurfaceConfig: @escaping () -> ghostty_terminal_surface_config_s,
         paneViewTheme: @escaping () -> TerminalTheme,
-        createPaneSurface: @escaping PaneSurfaceCreator = TmuxPaneSurface.create
+        createPaneSurface: @escaping PaneSurfaceCreator = TmuxPaneSurface.create,
+        agentStateNotifier: (any TmuxAgentStateNotifying)? = nil
     ) {
         self.app = app
         self.baseSurfaceConfig = baseSurfaceConfig
         self.paneViewTheme = paneViewTheme
         self.createPaneSurface = createPaneSurface
+        self.agentStateNotifier = agentStateNotifier
 
         let relay = Relay()
         let controller = TmuxSessionController(callbacks: TmuxSessionController.Callbacks(
@@ -82,6 +89,9 @@ final class TmuxTerminalSession: ObservableObject {
             },
             onRequestFailed: { request in
                 MainActor.assumeIsolated { relay.target?.handleRequestFailed(request) }
+            },
+            onPaneAgentMetadata: { infos in
+                MainActor.assumeIsolated { relay.target?.handlePaneAgentMetadata(infos) }
             }
         ))
         self.controller = controller
@@ -136,6 +146,7 @@ final class TmuxTerminalSession: ObservableObject {
     func shutdown() async {
         guard !isShutDown else { return }
         isShutDown = true
+        stopAgentMetadataPolling()
         livePaneIDs.removeAll()
         pendingTerminalsByPaneID.removeAll()
 
@@ -180,10 +191,12 @@ final class TmuxTerminalSession: ObservableObject {
         state = newState
         switch newState {
         case .detached, .closed:
+            stopAgentMetadataPolling()
             reconcilePresentationActivity()
             linkIsActive = false
             Task { await link.stop() }
         case .ready:
+            startAgentMetadataPollingIfNeeded()
             reconcilePresentationActivity()
         case .attaching, .syncing:
             break
@@ -201,6 +214,9 @@ final class TmuxTerminalSession: ObservableObject {
             createSurfaceIfPossible(paneID: paneID)
         }
         reconcilePresentationActivity()
+        // A fresh topology can carry panes the last agent-metadata poll did
+        // not know; repoll so badges and blocked alerts track the pane set.
+        pollAgentMetadataIfReady()
     }
 
     private func handlePaneRemoved(_ paneID: TmuxPaneID) {
@@ -428,6 +444,69 @@ final class TmuxTerminalSession: ObservableObject {
     func setAppActive(_ active: Bool) {
         isAppActive = active
         reconcilePresentationActivity()
+        if active { pollAgentMetadataIfReady() }
+    }
+
+    /// Whether this session's screen is the one on display. Paired with
+    /// `isAppActive` it decides whether a newly blocked pane is something the
+    /// user can already see (no alert) or not (local notification).
+    func setPresented(_ presented: Bool) {
+        isPresented = presented
+    }
+
+    // MARK: Pane agent metadata
+
+    private static let agentMetadataPollInterval: TimeInterval = 4
+
+    private func startAgentMetadataPollingIfNeeded() {
+        guard state == .ready, agentMetadataPollTimer == nil else { return }
+        pollAgentMetadataIfReady()
+        agentMetadataPollTimer = Timer.scheduledTimer(
+            withTimeInterval: Self.agentMetadataPollInterval,
+            repeats: true
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.pollAgentMetadataIfReady()
+            }
+        }
+    }
+
+    private func stopAgentMetadataPolling() {
+        agentMetadataPollTimer?.invalidate()
+        agentMetadataPollTimer = nil
+        paneAgentInfo = [:]
+        agentBlockedTracker.reset()
+    }
+
+    private func pollAgentMetadataIfReady() {
+        guard !isShutDown, state == .ready else { return }
+        controller.requestPaneAgentMetadataPoll()
+    }
+
+    private func handlePaneAgentMetadata(_ infos: [TmuxPaneID: TmuxPaneAgentInfo]) {
+        paneAgentInfo = infos
+        let newlyBlockedPaneIDs = agentBlockedTracker.update(with: infos)
+        guard !newlyBlockedPaneIDs.isEmpty, let agentStateNotifier else { return }
+
+        let policy = TmuxAgentBlockedAlertPolicy(
+            isAppActive: isAppActive,
+            isSessionPresented: isPresented,
+            viewedPaneID: viewedPaneID()
+        )
+        for paneID in newlyBlockedPaneIDs where policy.shouldNotify(paneID: paneID) {
+            let pane = topology?.panes.first(where: { $0.id == paneID })
+            agentStateNotifier.notifyAgentBlocked(TmuxAgentBlockedNotification(
+                sessionName: topology?.sessionName ?? "",
+                paneID: paneID,
+                currentCommand: pane?.currentCommand ?? "",
+                currentPath: pane?.currentPath ?? ""
+            ))
+        }
+    }
+
+    private func viewedPaneID() -> TmuxPaneID? {
+        guard let topology, let activeWindowID = topology.activeWindowID else { return nil }
+        return topology.windows.first(where: { $0.id == activeWindowID })?.activePaneID
     }
 
     func applyTerminalConfiguration(theme: TerminalTheme) {
@@ -449,6 +528,9 @@ final class TmuxTerminalSession: ObservableObject {
               topology?.panes.contains(where: { $0.id == paneID }) == true
         else { return }
         markPaneLiveAfterTerminalHandoff(paneID)
+    }
+    func handlePaneAgentMetadataForTesting(_ infos: [TmuxPaneID: TmuxPaneAgentInfo]) {
+        handlePaneAgentMetadata(infos)
     }
     #endif
 }

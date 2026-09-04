@@ -708,27 +708,48 @@ private struct GhosttyPaneTopologyDiagram: View {
         size: CGSize
     ) -> some View {
         VStack(spacing: 2) {
-            Text(directoryName(pane))
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(
-                    pane.id == selectedPaneID
-                        ? accent
-                        : TerminalSelectionSheetPalette.primary
-                )
-                .lineLimit(1)
-                .truncationMode(.middle)
+            HStack(spacing: 4) {
+                TmuxAgentStateBadge(state: pane.agentInfo.state)
+
+                Text(directoryName(pane))
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(
+                        pane.id == selectedPaneID
+                            ? accent
+                            : TerminalSelectionSheetPalette.primary
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
 
             Text(commandName(for: pane))
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(TerminalSelectionSheetPalette.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+
+            if let branch = gitBranchLabel(for: pane) {
+                Text(branch)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(TerminalSelectionSheetPalette.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
         }
         .multilineTextAlignment(.center)
         .frame(width: max(0, size.width - 16))
         .frame(width: size.width, height: size.height, alignment: .center)
         .clipped()
         .contentShape(Rectangle())
+    }
+
+    /// The branch is noise when it is the repo's default main line; the tmux
+    /// status bar treats it the same way.
+    private func gitBranchLabel(
+        for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
+    ) -> String? {
+        guard let branch = pane.agentInfo.gitBranch, branch != "main" else { return nil }
+        return branch
     }
 
     private func commandName(
@@ -740,7 +761,14 @@ private struct GhosttyPaneTopologyDiagram: View {
     private func accessibilityLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
     ) -> String {
-        "\(directoryName(pane)), \(commandName(for: pane))"
+        var parts = [directoryName(pane), commandName(for: pane)]
+        if let agentLabel = TmuxAgentStateBadge.accessibilityLabel(for: pane.agentInfo.state) {
+            parts.append(agentLabel)
+        }
+        if let branch = gitBranchLabel(for: pane) {
+            parts.append("branch \(branch)")
+        }
+        return parts.joined(separator: ", ")
     }
 }
 

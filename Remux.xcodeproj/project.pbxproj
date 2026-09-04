@@ -19,6 +19,7 @@
 		0DCAADC05D6444284C9F4CCD /* RemuxSSHExecSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9586DC1E9C276FB8513E59B4 /* RemuxSSHExecSessionTests.swift */; };
 		12D92BE2A4D3EF5666A6686B /* GhosttySpeechAnalyzerComposerDictationBackend.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1F5DFFCFEE03768DB9B6E879 /* GhosttySpeechAnalyzerComposerDictationBackend.swift */; };
 		1378681F54924A5F33A2EF8C /* RemuxActiveSessionCollectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 01FC67667E36CB7A186EFC68 /* RemuxActiveSessionCollectionTests.swift */; };
+		1437087D470BB72006A984AA /* TmuxPaneAgentState.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2CA4B1D14B4C218273459C7D /* TmuxPaneAgentState.swift */; };
 		14890862E5A8BFE9BE759DB0 /* GhosttySurfaceKeyEventTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4E84F774C17B5C4DB6B715A9 /* GhosttySurfaceKeyEventTests.swift */; };
 		14BCD2766E4ED765F45BA3AD /* GhosttyPanePreviewSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 07301EEDA55AAD40D17C26DA /* GhosttyPanePreviewSessionTests.swift */; };
 		1609A6A5CD77508AB0AEA36D /* GhosttyAttachmentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = EAEFDFDF747576F43E843FAA /* GhosttyAttachmentNotice.swift */; };
@@ -96,10 +97,12 @@
 		617F465A745990995E23034B /* RemuxPreparedTransportCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6051890D165AEFC762DD5DF4 /* RemuxPreparedTransportCache.swift */; };
 		63982077EBCD656F6570F121 /* TerminalPreviewLiveWeb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4268A9BCEA43005C3CE56AF7 /* TerminalPreviewLiveWeb.swift */; };
 		6548541B3AD17F7D70BFE8C0 /* TerminalPreviewLiveWebTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D5437829CC09E381C6615908 /* TerminalPreviewLiveWebTests.swift */; };
+		677BB85236D35AE0E162C4A5 /* TmuxAgentStateNotifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 28B2FA8CCA234D4CC03C065E /* TmuxAgentStateNotifier.swift */; };
 		68AB6FD8F0F48EBAEDCA1F3D /* ShortcutExecutor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 60FE6CB3913B2DD433F57472 /* ShortcutExecutor.swift */; };
 		68F62C41042D69317C5A9FD3 /* GhosttyQuickLookPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = D4FB03D3718F47ECDF15AEC3 /* GhosttyQuickLookPreview.swift */; };
 		6959353E0AAA65D244C5B077 /* JSONFileStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0C7EBCE00319FF2879275BDD /* JSONFileStore.swift */; };
 		69B6BE62C46DCA6C8CA9BFBD /* PanePreviewLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = F4748776DB3A0FEF2A152403 /* PanePreviewLayout.swift */; };
+		6EE3D0A49CCF1BDF5CBAAB8C /* TmuxAgentStateBadge.swift in Sources */ = {isa = PBXBuildFile; fileRef = B0B326DC5D0A678EC9B41DAF /* TmuxAgentStateBadge.swift */; };
 		6FBE9FBDD0C172917B4009F8 /* SSHAuthenticationMethodFactoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C9E3B3B2885A4913A2C32539 /* SSHAuthenticationMethodFactoryTests.swift */; };
 		71929CA0D4AE6FC5FA464C4B /* TerminalPreviewFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C60C2A339E149300CA7177 /* TerminalPreviewFileLoader.swift */; };
 		71CC1415715E9ECCD4C80EA2 /* GhosttyTerminalPresentationProjectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4671F22C07201C31912267E9 /* GhosttyTerminalPresentationProjectorTests.swift */; };
@@ -109,6 +112,7 @@
 		7586AAB0E733735D89B19DC6 /* GhosttyAttachmentPasteboardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CCA4A17BA5BEB5643174E99 /* GhosttyAttachmentPasteboardSnapshot.swift */; };
 		7726730DFA9B5E99BF5686EA /* GhosttyKeyboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F24A0810E927B327E82D59 /* GhosttyKeyboardChrome.swift */; };
 		77F42C4A7D6B2327955411D4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 693A617C3861CAF780D14828 /* Assets.xcassets */; };
+		787D6D1F8B11B38810A25B9A /* TmuxPaneAgentStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB474BFB56EEBAB807C7E11B /* TmuxPaneAgentStateTests.swift */; };
 		7C99EDFDCE3B0927D26C1029 /* GhosttyAttachmentPasteboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84DD89E37AC083383B988185 /* GhosttyAttachmentPasteboardSnapshotTests.swift */; };
 		7D737693581BDF76436D61D9 /* GhosttyTerminalDisconnectReasonClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99082CEC90EA6D04B5BE5874 /* GhosttyTerminalDisconnectReasonClassifier.swift */; };
 		7FB696D68436C55D304387E4 /* TmuxTerminalScreenAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D507C4F64535720BC9A3F665 /* TmuxTerminalScreenAdapter.swift */; };
@@ -267,10 +271,12 @@
 		267386EB1A94C2A6029D90F6 /* TerminalRuntimeStatusPresentation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRuntimeStatusPresentation.swift; sourceTree = "<group>"; };
 		2693DBF11402EDAEC946123A /* RemuxLibrarySSHPrewarmCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemuxLibrarySSHPrewarmCoordinator.swift; sourceTree = "<group>"; };
 		2788DE85F31E74E9F80A8293 /* GhosttySurfaceScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttySurfaceScreen.swift; sourceTree = "<group>"; };
+		28B2FA8CCA234D4CC03C065E /* TmuxAgentStateNotifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxAgentStateNotifier.swift; sourceTree = "<group>"; };
 		28EE543D2B247AE6C6A8C472 /* ConnectionProfileRepositoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConnectionProfileRepositoryTests.swift; sourceTree = "<group>"; };
 		29658D4FE019C12073CC58BE /* GhosttyTerminalInputCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalInputCoordinator.swift; sourceTree = "<group>"; };
 		2A1CB6877AF169792137FA56 /* GhosttyAttachmentImageMarkupRendererTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAttachmentImageMarkupRendererTests.swift; sourceTree = "<group>"; };
 		2C034CA49D392AB2574E8403 /* GhosttyComposerSubmissionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyComposerSubmissionController.swift; sourceTree = "<group>"; };
+		2CA4B1D14B4C218273459C7D /* TmuxPaneAgentState.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxPaneAgentState.swift; sourceTree = "<group>"; };
 		2CCD1093451DAA47FF649549 /* RemuxAppDependencies.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemuxAppDependencies.swift; sourceTree = "<group>"; };
 		2D0CE2626790CFB617C7B39A /* GhosttyManagedSurfaceLookup.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyManagedSurfaceLookup.swift; sourceTree = "<group>"; };
 		2DE43FCF1FB0A2A5205281A9 /* GhosttyTerminalDebugLatencyProbeControllerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyTerminalDebugLatencyProbeControllerTests.swift; sourceTree = "<group>"; };
@@ -376,6 +382,7 @@
 		AC550DCE031B69C4EDD3C6F5 /* GhosttyAttachmentImageMarkupEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyAttachmentImageMarkupEditor.swift; sourceTree = "<group>"; };
 		AD50E6815BED6CB2E3B793C9 /* SSHCredentialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHCredentialStore.swift; sourceTree = "<group>"; };
 		AE5B67646A0F14933B3FD8D8 /* ApplicationStorage.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationStorage.swift; sourceTree = "<group>"; };
+		B0B326DC5D0A678EC9B41DAF /* TmuxAgentStateBadge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxAgentStateBadge.swift; sourceTree = "<group>"; };
 		B1861094273B802BF30CB94A /* TmuxTerminalScreenAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxTerminalScreenAdapterTests.swift; sourceTree = "<group>"; };
 		B1AAF15C6761B24466DD78D6 /* TerminalRuntimeStatusPresentationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalRuntimeStatusPresentationTests.swift; sourceTree = "<group>"; };
 		B38F49B9EC49FF6E9791967C /* GhosttyKeyboardVisibilityProjection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyKeyboardVisibilityProjection.swift; sourceTree = "<group>"; };
@@ -440,6 +447,7 @@
 		F4C925D814F660B71813EB84 /* SSHPrivateKeyInspectorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SSHPrivateKeyInspectorTests.swift; sourceTree = "<group>"; };
 		F5AA752EADDB9E6FBA8140A4 /* RemuxLibrarySSHPrewarmPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemuxLibrarySSHPrewarmPlanner.swift; sourceTree = "<group>"; };
 		F7AB8F43CB771795CF5DA0CB /* install_authorized_key.sh */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = install_authorized_key.sh; sourceTree = "<group>"; };
+		FB474BFB56EEBAB807C7E11B /* TmuxPaneAgentStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxPaneAgentStateTests.swift; sourceTree = "<group>"; };
 		FC3F9F61A40DD02A7DD80980 /* RemuxSFTPClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RemuxSFTPClient.swift; sourceTree = "<group>"; };
 		FEDEA02EF430A8D0066B6B42 /* TmuxSessionLinkWriteFailureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TmuxSessionLinkWriteFailureTests.swift; sourceTree = "<group>"; };
 		FF11321286DB9076CB3FA983 /* GhosttyKitRuntime.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GhosttyKitRuntime.swift; sourceTree = "<group>"; };
@@ -477,9 +485,11 @@
 				F094A10EBF0BCD867A6B270C /* SSHTmuxControlCommandBuilder.swift */,
 				D74058D995BF7376879755FE /* SSHTmuxControlInboundStream.swift */,
 				F1E957489B11B107A9340622 /* SSHTmuxControlTransport.swift */,
+				28B2FA8CCA234D4CC03C065E /* TmuxAgentStateNotifier.swift */,
 				00BF7405360DC035455D7ACE /* TmuxControlTransport.swift */,
 				D5C1984ED86A7C5154746E37 /* TmuxControlViewport.swift */,
 				12398BF9373F42BEB01C099E /* TmuxIdentity.swift */,
+				2CA4B1D14B4C218273459C7D /* TmuxPaneAgentState.swift */,
 				78CD307268384537F5CF1219 /* TmuxPaneSurface.swift */,
 				6B19046A43739DE9328A3612 /* TmuxScreenModel.swift */,
 				E6264B24DDF73BB7A9ACA1D7 /* TmuxSessionController.swift */,
@@ -587,6 +597,7 @@
 				08FA18CCB40D2C7746D7D569 /* TerminalSettingsTests.swift */,
 				9CD6734AD2260C5731B081A1 /* TerminalThemePreviewRendererTests.swift */,
 				BA66578016B8B2B62FF2332F /* TmuxConnectionDraftValidatorTests.swift */,
+				FB474BFB56EEBAB807C7E11B /* TmuxPaneAgentStateTests.swift */,
 				3952803B4C0F5E847EEDEB75 /* TmuxScreenModelForegroundActiveCheckTests.swift */,
 				63BEFB87916C69E34AD0D481 /* TmuxSessionControllerClientSizeTests.swift */,
 				35267B5913ECA2D06DC5EE1B /* TmuxSessionDiscoveryTests.swift */,
@@ -782,6 +793,7 @@
 				CFE401B861C30DA18E8BE1C9 /* ShortcutsSettingsSheet.swift */,
 				BBFB3839D169808DACE1125F /* TerminalSelectionSheetStyle.swift */,
 				7C826602D9C963622FB26A40 /* TerminalThemePreviewRenderer.swift */,
+				B0B326DC5D0A678EC9B41DAF /* TmuxAgentStateBadge.swift */,
 			);
 			path = Ghostty;
 			sourceTree = "<group>";
@@ -1049,10 +1061,13 @@
 				0494A11A7D6207165CFCDAD7 /* TerminalSettings.swift in Sources */,
 				A0D6CF5A40A4953636A1928F /* TerminalSettingsRepository.swift in Sources */,
 				4D354C37600CA12E917B566F /* TerminalThemePreviewRenderer.swift in Sources */,
+				6EE3D0A49CCF1BDF5CBAAB8C /* TmuxAgentStateBadge.swift in Sources */,
+				677BB85236D35AE0E162C4A5 /* TmuxAgentStateNotifier.swift in Sources */,
 				936B7642F2B8F0B072D9CF0B /* TmuxConnectionTarget.swift in Sources */,
 				4809C175892171E7B13557EF /* TmuxControlTransport.swift in Sources */,
 				59082855C99ADBA1145126DB /* TmuxControlViewport.swift in Sources */,
 				4910DDB4F6A8C62A9EFA0B1C /* TmuxIdentity.swift in Sources */,
+				1437087D470BB72006A984AA /* TmuxPaneAgentState.swift in Sources */,
 				E4567A58B784F0F52B31505F /* TmuxPaneSurface.swift in Sources */,
 				8B1B766701C8B598CD3A5480 /* TmuxScreenModel.swift in Sources */,
 				2CC93B0F7B15C422B91559A6 /* TmuxSessionController.swift in Sources */,
@@ -1145,6 +1160,7 @@
 				245F3E2F2ED1675C0BFC0318 /* TerminalSettingsTests.swift in Sources */,
 				EFCBAAB121A739C685783FDB /* TerminalThemePreviewRendererTests.swift in Sources */,
 				97B5E2FB407BCF998515310C /* TmuxConnectionDraftValidatorTests.swift in Sources */,
+				787D6D1F8B11B38810A25B9A /* TmuxPaneAgentStateTests.swift in Sources */,
 				A0BA158C314003057744D8A8 /* TmuxScreenModelForegroundActiveCheckTests.swift in Sources */,
 				452A533BD9FA3A594F9C3F28 /* TmuxSessionControllerClientSizeTests.swift in Sources */,
 				3DF5306E3D25CA58D87542C6 /* TmuxSessionDiscoveryTests.swift in Sources */,
