@@ -84,6 +84,9 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
     private var viewportStabilityHandler: ((Bool) -> Void)?
     private var latestViewportMeasurement: GhosttyTerminalViewportMeasurement?
     private var cachedTopologySnapshot = GhosttyRuntimeSurfaceTopologySnapshot.empty
+    /// Most recent agent detected per pane, kept after the agent exits back
+    /// to a shell so "resume agent" actions still know which CLI to relaunch.
+    private var lastDetectedAgentByPaneID: [TmuxPaneID: AgentIdentity] = [:]
     private var ownedZoomWindowIDs: Set<TmuxWindowID> = []
     private var pendingZoomOwnershipWindowIDs: Set<TmuxWindowID> = []
     private var pendingOwnedZoomPreservation: (windowID: TmuxWindowID, paneID: TmuxPaneID)?
@@ -116,6 +119,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             .sink { [weak self] topology in
                 guard let self, let session = self.session else { return }
                 self.latestTopology = topology
+                self.reconcileAgentTracking(with: topology)
                 if let topology {
                     self.reconcileZoomOwnership(with: topology)
                     self.applyMultipaneZoomDefaultIfNeeded(to: topology)
@@ -181,6 +185,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         managedSurfacesByPaneID.removeAll()
         activeManagedSurface = nil
         ownedZoomWindowIDs.removeAll()
+        lastDetectedAgentByPaneID.removeAll()
         pendingZoomOwnershipWindowIDs.removeAll()
         pendingOwnedZoomPreservation = nil
         multipaneZoomDefault.reset()
@@ -259,7 +264,8 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
                         : normalFrame,
                     isFocused: isFocused,
                     tmuxCurrentCommand: pane.currentCommand,
-                    tmuxCurrentPath: pane.currentPath
+                    tmuxCurrentPath: pane.currentPath,
+                    resumableAgent: resumableAgent(for: pane)
                 )
             }
 
@@ -301,6 +307,56 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             topLevels: topLevels,
             selectedTopLevelID: topology.activeWindowID.map { identities.surfaceID(for: $0) }
         )
+    }
+
+    // MARK: Agent detection
+
+    private func reconcileAgentTracking(with topology: TmuxSessionController.TopologySnapshot?) {
+        guard let topology else {
+            lastDetectedAgentByPaneID.removeAll()
+            return
+        }
+        let paneIDs = Set(topology.panes.map(\.id))
+        lastDetectedAgentByPaneID = lastDetectedAgentByPaneID.filter {
+            paneIDs.contains($0.key)
+        }
+        for pane in topology.panes {
+            if let agent = AgentDetection.agent(forCommand: pane.currentCommand) {
+                lastDetectedAgentByPaneID[pane.id] = agent
+            }
+        }
+    }
+
+    /// An agent the pane used to run and can resume, present only while the
+    /// pane's foreground command is no longer a detected agent CLI.
+    private func resumableAgent(
+        for pane: TmuxSessionController.PaneInfo
+    ) -> AgentIdentity? {
+        guard AgentDetection.agent(forCommand: pane.currentCommand) == nil else {
+            return nil
+        }
+        return lastDetectedAgentByPaneID[pane.id]
+    }
+
+    /// The first currently detected agent anywhere in the session, used for
+    /// the session switcher badge.
+    var sessionAgent: AgentIdentity? {
+        latestTopology?.panes.lazy
+            .compactMap { AgentDetection.agent(forCommand: $0.currentCommand) }
+            .first
+    }
+
+    /// Windows with at least one pane currently running a detected agent, in
+    /// window order. Drives the "jump to agent window" quick action.
+    var tmuxAgentTopLevelIDs: [UUID] {
+        guard let topology = latestTopology else { return [] }
+        return topology.windows.compactMap { window in
+            let hasAgent = topology.panes.contains {
+                $0.windowID == window.id
+                    && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+            }
+            return hasAgent ? identities.surfaceID(for: window.id) : nil
+        }
     }
 
     private var runtimePhase: GhosttyTerminalRuntimePhase {
@@ -741,6 +797,33 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         )
         guard targetIndex != activeIndex else {
             return .missingTarget(.adjacentWindow)
+        }
+        let targetWindow = topology.windows[targetIndex]
+        requestWindowSelection(targetWindow, in: topology, controller: controller)
+        return .queued
+    }
+
+    func focusNextTmuxAgentTopLevel() -> GhosttyTmuxModelActionOutcome {
+        guard let controller, let topology = latestTopology else {
+            return .missingTarget(.agentWindow)
+        }
+        let hasAgentByWindow = topology.windows.map { window in
+            topology.panes.contains {
+                $0.windowID == window.id
+                    && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+            }
+        }
+        let activeIndex = topology.activeWindowID
+            .flatMap { id in topology.windows.firstIndex(where: { $0.id == id }) }
+        guard let targetIndex = AgentWindowCycle.nextAgentWindowIndex(
+            hasAgentByWindow: hasAgentByWindow,
+            currentIndex: activeIndex
+        ) else {
+            return .missingTarget(.agentWindow)
+        }
+        guard targetIndex != activeIndex else {
+            // Already on the only agent window; nothing to jump to.
+            return .queued
         }
         let targetWindow = topology.windows[targetIndex]
         requestWindowSelection(targetWindow, in: topology, controller: controller)

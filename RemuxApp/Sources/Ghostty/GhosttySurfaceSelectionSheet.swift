@@ -170,6 +170,7 @@ struct GhosttyWindowSelectionSheet: View {
                     if pendingContextAction?.id == window.id {
                         GhosttySelectionContextActionButton(
                             title: "Remove Window \(window.displayIndex)",
+                            systemName: "trash",
                             accessibilityIdentifier: "terminal.window.remove.\(window.displayIndex)",
                             action: confirmPendingContextAction
                         )
@@ -226,6 +227,7 @@ struct GhosttyPaneSelectionSheet: View {
     let onSetZoomed: (Bool) -> Void
     let onSelect: (UUID) -> Void
     let onRemovePane: (UUID) -> Void
+    let onResumeAgent: (UUID) -> Void
 
     var body: some View {
         NavigationStack {
@@ -338,6 +340,12 @@ struct GhosttyPaneSelectionSheet: View {
             },
             onRemove: { pane in
                 performRemoval(removalRequest(for: pane))
+            },
+            onResumeAgent: { pane in
+                Haptic.selection()
+                pendingContextAction = nil
+                onResumeAgent(pane.id)
+                dismiss()
             }
         )
         .frame(height: topologySize.height, alignment: .top)
@@ -420,7 +428,9 @@ private struct GhosttySelectionSheetFailureBanner: View {
 
 private struct GhosttySelectionContextActionButton: View {
     let title: String
+    let systemName: String
     let accessibilityIdentifier: String
+    var isDestructive = true
     let action: () -> Void
 
     var body: some View {
@@ -428,9 +438,13 @@ private struct GhosttySelectionContextActionButton: View {
             Haptic.tap()
             action()
         } label: {
-            Image(systemName: "trash")
+            Image(systemName: systemName)
                 .font(.system(size: 17, weight: .semibold))
-                .foregroundStyle(GhosttySelectionContextActionPalette.destructiveText)
+                .foregroundStyle(
+                    isDestructive
+                        ? GhosttySelectionContextActionPalette.destructiveText
+                        : GhosttySelectionContextActionPalette.actionText
+                )
                 .frame(width: 44, height: 44)
                 .ghosttySelectionContextActionSurface()
         }
@@ -452,6 +466,7 @@ private enum GhosttySelectionContextActionPalette {
     static let fallbackFill = Color(uiColor: .secondarySystemBackground).opacity(0.92)
     static let glassTint = Color.primary.opacity(0.055)
     static let destructiveText = Color(uiColor: .systemRed)
+    static let actionText = TerminalSelectionSheetPalette.primary
     static let stroke = Color.primary.opacity(0.11)
     static let shadow = Color.black.opacity(0.20)
 }
@@ -598,6 +613,7 @@ private struct GhosttyPaneTopologyDiagram: View {
     let onSelect: (UUID) -> Void
     let onLongPress: (GhosttyPaneSelectionSheetRenderProjection.Pane) -> Void
     let onRemove: (GhosttyPaneSelectionSheetRenderProjection.Pane) -> Void
+    let onResumeAgent: (GhosttyPaneSelectionSheetRenderProjection.Pane) -> Void
 
     static func contentSize(for outerSize: CGSize) -> CGSize {
         CGSize(
@@ -670,11 +686,24 @@ private struct GhosttyPaneTopologyDiagram: View {
             }
 
             if pendingRemovalPaneID == pane.id {
-                GhosttySelectionContextActionButton(
-                    title: "Remove Pane",
-                    accessibilityIdentifier: "terminal.pane.remove.\(pane.id.uuidString)",
-                    action: { onRemove(pane) }
-                )
+                HStack(spacing: 8) {
+                    if let agent = pane.resumableAgent, agent.resumeCommand != nil {
+                        GhosttySelectionContextActionButton(
+                            title: "Resume \(agent.displayName)",
+                            systemName: "arrow.clockwise",
+                            accessibilityIdentifier: "terminal.pane.resume-agent.\(pane.id.uuidString)",
+                            isDestructive: false,
+                            action: { onResumeAgent(pane) }
+                        )
+                    }
+
+                    GhosttySelectionContextActionButton(
+                        title: "Remove Pane",
+                        systemName: "trash",
+                        accessibilityIdentifier: "terminal.pane.remove.\(pane.id.uuidString)",
+                        action: { onRemove(pane) }
+                    )
+                }
                 .padding(4)
                 .transition(.scale(scale: 0.92).combined(with: .opacity))
             }
@@ -718,11 +747,20 @@ private struct GhosttyPaneTopologyDiagram: View {
                 .lineLimit(1)
                 .truncationMode(.middle)
 
-            Text(commandName(for: pane))
-                .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(TerminalSelectionSheetPalette.secondary)
-                .lineLimit(1)
-                .truncationMode(.tail)
+            HStack(spacing: 3) {
+                if let agent = AgentDetection.agent(forCommand: pane.tmuxCurrentCommand) {
+                    Text(agent.glyph)
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(agent.accent)
+                        .accessibilityHidden(true)
+                }
+
+                Text(commandName(for: pane))
+                    .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+            }
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .truncationMode(.tail)
         }
         .multilineTextAlignment(.center)
         .frame(width: max(0, size.width - 16))
@@ -740,7 +778,11 @@ private struct GhosttyPaneTopologyDiagram: View {
     private func accessibilityLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
     ) -> String {
-        "\(directoryName(pane)), \(commandName(for: pane))"
+        var label = "\(directoryName(pane)), \(commandName(for: pane))"
+        if let agent = AgentDetection.agent(forCommand: pane.tmuxCurrentCommand) {
+            label += ", \(agent.displayName)"
+        }
+        return label
     }
 }
 

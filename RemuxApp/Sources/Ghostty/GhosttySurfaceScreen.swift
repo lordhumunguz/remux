@@ -88,6 +88,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
     @State private var attachmentPhotoSelections: [PhotosPickerItem] = []
     @State private var attachmentPreviewRequest: AttachmentPreviewRequest?
     @State private var attachmentNotice: GhosttyAttachmentNotice?
+    @State private var pendingSnippetRun: AgentPromptSnippet?
     @State private var composerRevision: UInt64 = 0
 #if DEBUG
     @State private var uiTestKeyboardWillHideCount = 0
@@ -592,6 +593,20 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 allowsMultipleSelection: true,
                 onCompletion: handleAttachmentFileSelection
             )
+            .confirmationDialog(
+                "Send Snippet?",
+                isPresented: pendingSnippetRunBinding,
+                titleVisibility: .visible,
+                presenting: pendingSnippetRun
+            ) { snippet in
+                Button("Send") {
+                    sendSnippetToFocusedPane(snippet)
+                    pendingSnippetRun = nil
+                }
+                .accessibilityIdentifier("terminal.composer.snippet.confirm")
+            } message: { snippet in
+                Text("“\(snippet.name)” changes how the agent works in this pane.")
+            }
             .onChange(of: paneSelectionSheetTopologyProjection) { _, projection in
                 guard projection.shouldDismissPaneSheet else { return }
                 dismissSelectionSheet()
@@ -723,9 +738,20 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 onStartDictation: startComposerDictation,
                 onCancelDictation: cancelComposerDictation,
                 onFinishDictation: finishComposerDictation,
-                onSend: submitComposer
+                onSend: submitComposer,
+                resumableAgent: focusedResumableAgent,
+                canJumpToAgentWindow: !model.tmuxAgentTopLevelIDs.isEmpty,
+                onRunSnippet: runSnippetFromComposer,
+                onResumeAgent: resumeFocusedAgentFromComposer,
+                onJumpToAgentWindow: jumpToAgentWindowFromComposer
             )
         }
+    }
+
+    private var focusedResumableAgent: AgentIdentity? {
+        model.terminalScreenPresentationProjection.viewport.panes
+            .first(where: \.isFocused)?
+            .resumableAgent
     }
 
     private var isTerminalInputAvailable: Bool {
@@ -1661,6 +1687,74 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
         )
     }
 
+    // MARK: Agent quick actions
+
+    private var pendingSnippetRunBinding: Binding<Bool> {
+        Binding(
+            get: { pendingSnippetRun != nil },
+            set: { isPresented in
+                if !isPresented { pendingSnippetRun = nil }
+            }
+        )
+    }
+
+    private func runSnippetFromComposer(_ snippet: AgentPromptSnippet) {
+        Haptic.tap()
+        if snippet.requiresConfirmation {
+            pendingSnippetRun = snippet
+        } else {
+            sendSnippetToFocusedPane(snippet)
+        }
+    }
+
+    private func sendSnippetToFocusedPane(_ snippet: AgentPromptSnippet) {
+        guard let surfaceID = model.terminalInteractionProjection.selectedActiveLeafID else {
+            composer.statusMessage = "Couldn’t send. No pane is focused."
+            return
+        }
+        sendQuickActionCommand(snippet.prompt, to: surfaceID)
+    }
+
+    private func resumeFocusedAgentFromComposer() {
+        Haptic.selection()
+        guard let command = focusedResumableAgent?.resumeCommand,
+              let surfaceID = model.terminalInteractionProjection.selectedActiveLeafID else {
+            return
+        }
+        sendQuickActionCommand(command, to: surfaceID)
+    }
+
+    private func jumpToAgentWindowFromComposer() {
+        Haptic.selection()
+        if !model.focusNextTmuxAgentTopLevel().isHandled {
+            composer.statusMessage = "No window is running an agent."
+        }
+    }
+
+    private func resumeAgentInPaneFromSelectionSheet(_ id: UUID, topLevelID: UUID) {
+        let projection = model.paneSelectionSheetRenderProjection(topLevelID: topLevelID)
+        guard let pane = projection.panes.first(where: { $0.id == id }),
+              let command = pane.resumableAgent?.resumeCommand else { return }
+        sendQuickActionCommand(command, to: id)
+    }
+
+    /// Sends a quick-action command (snippet prompt, agent resume) into a
+    /// pane through the same paste-then-enter path the composer uses.
+    private func sendQuickActionCommand(_ command: String, to surfaceID: UUID) {
+        guard isTerminalInputAvailable, !composer.isSubmitting else { return }
+        terminalInputController.clearControl()
+        scrollComposerDestinationToBottom(surfaceID)
+        Task { @MainActor in
+            let didPaste = await sendTerminalPaste(command, to: surfaceID)
+            guard didPaste else {
+                composer.statusMessage = "Couldn’t send. Check the terminal."
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(150))
+            _ = await sendComposerEnter(to: surfaceID)
+        }
+    }
+
     private func sendTerminalKeyEvent(_ event: GhosttySurfaceKeyEvent) -> Bool {
         terminalInputController.performKeyEvent(
             event,
@@ -2164,6 +2258,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 onSelect: selectTmuxPaneFromSelectionSheet,
                 onRemovePane: { id in
                     closeTmuxPaneFromSelectionSheet(id, topLevelID: topLevelID)
+                },
+                onResumeAgent: { id in
+                    resumeAgentInPaneFromSelectionSheet(id, topLevelID: topLevelID)
                 }
             )
         }

@@ -198,6 +198,11 @@ struct GhosttyComposeBar: View {
     let onCancelDictation: () -> Void
     let onFinishDictation: () -> Void
     let onSend: () -> Void
+    let resumableAgent: AgentIdentity?
+    let canJumpToAgentWindow: Bool
+    let onRunSnippet: (AgentPromptSnippet) -> Void
+    let onResumeAgent: () -> Void
+    let onJumpToAgentWindow: () -> Void
 
     private var attachments: [GhosttyPendingAttachment] {
         composer.attachments
@@ -448,9 +453,66 @@ struct GhosttyComposeBar: View {
         } else {
             HStack(spacing: 2) {
                 attachmentMenu
+                quickActionsMenu
                 closeButton
             }
         }
+    }
+
+    private var quickActionsMenu: some View {
+        Menu {
+            Section("Snippets") {
+                ForEach(AgentPromptSnippets.all) { snippet in
+                    Button {
+                        onRunSnippet(snippet)
+                    } label: {
+                        Label(
+                            snippet.name,
+                            systemImage: snippet.category == .mode
+                                ? "arrow.triangle.2.circlepath"
+                                : "text.quote"
+                        )
+                    }
+                    .accessibilityIdentifier("terminal.composer.snippet.\(snippet.id)")
+                }
+            }
+
+            if (resumableAgent?.resumeCommand != nil) || canJumpToAgentWindow {
+                Section("Agent") {
+                    if let agent = resumableAgent, agent.resumeCommand != nil {
+                        Button {
+                            onResumeAgent()
+                        } label: {
+                            Label("Resume \(agent.displayName)", systemImage: "arrow.clockwise")
+                        }
+                        .accessibilityIdentifier("terminal.composer.resume-agent")
+                    }
+
+                    if canJumpToAgentWindow {
+                        Button {
+                            onJumpToAgentWindow()
+                        } label: {
+                            Label("Jump to Agent Window", systemImage: "arrow.right.circle")
+                        }
+                        .accessibilityIdentifier("terminal.composer.jump-to-agent-window")
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "sparkles")
+                .font(.system(size: 18, weight: .regular))
+                .symbolRenderingMode(.monochrome)
+                .foregroundStyle(GhosttyPhoneChromePalette.chromeForeground)
+                .frame(width: 42, height: 42)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .menuOrder(.fixed)
+        .disabled(!submissionState.allowsComposerInput)
+        .opacity(submissionState.allowsComposerInput ? 1 : 0.38)
+        .accessibilityLabel("Agent quick actions")
+        .accessibilityIdentifier("terminal.composer.quickactions")
     }
 
     @ViewBuilder
