@@ -127,6 +127,98 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
         XCTAssertFalse(try XCTUnwrap(writes.first).isEmpty)
     }
 
+    func testResponsiveAccordionQueryReadsServerOption() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.threePaneZoomedWindow,
+            expectedPaneCount: 3
+        )
+        var nextCommandNumber = harness.nextCommandNumber
+
+        let query = Task {
+            await harness.controller.responsiveAccordionEnabled()
+        }
+        try await waitUntil("accordion query was not written") {
+            harness.recorder.hasWrites
+        }
+        XCTAssertEqual(
+            harness.recorder.takeStrings(),
+            ["show-option -gv @responsive_accordion\n"]
+        )
+
+        harness.controller.pump(Data(responseBlock(
+            commandNumber: &nextCommandNumber,
+            body: "on\n"
+        ).utf8))
+        let enabled = await query.value
+        XCTAssertTrue(enabled)
+    }
+
+    func testResponsiveAccordionQueryToleratesMissingOption() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.threePaneZoomedWindow,
+            expectedPaneCount: 3
+        )
+        var nextCommandNumber = harness.nextCommandNumber
+
+        let query = Task {
+            await harness.controller.responsiveAccordionEnabled()
+        }
+        try await waitUntil("accordion query was not written") {
+            harness.recorder.hasWrites
+        }
+        _ = harness.recorder.takeStrings()
+        harness.controller.pump(Data(errorBlock(
+            commandNumber: &nextCommandNumber,
+            body: "invalid option: @responsive_accordion"
+        ).utf8))
+
+        let enabled = await query.value
+        XCTAssertFalse(enabled)
+    }
+
+    func testResponsiveAccordionQueryResolvesFalseOnTransportClose() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.threePaneZoomedWindow,
+            expectedPaneCount: 3
+        )
+
+        let query = Task {
+            await harness.controller.responsiveAccordionEnabled()
+        }
+        try await waitUntil("accordion query was not written") {
+            harness.recorder.hasWrites
+        }
+        _ = harness.recorder.takeStrings()
+        harness.controller.transportClosed()
+
+        let enabled = await query.value
+        XCTAssertFalse(enabled)
+    }
+
+    func testDetachClientWritesDetachCommandWhileAttached() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.threePaneZoomedWindow,
+            expectedPaneCount: 3
+        )
+
+        await harness.controller.detachClient()
+
+        XCTAssertEqual(harness.recorder.takeStrings(), ["detach-client\n"])
+    }
+
+    func testDetachClientSkipsWriteAfterAttachmentStopped() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.threePaneZoomedWindow,
+            expectedPaneCount: 3
+        )
+
+        harness.controller.attachmentStopped()
+        await drain(harness.controller)
+        await harness.controller.detachClient()
+
+        XCTAssertTrue(harness.recorder.takeStrings().isEmpty)
+    }
+
     func testWindowPaneMetadataRefreshIgnoresUnknownWindow() async throws {
         let harness = try await readyController(
             listWindowsBody: Self.threePaneZoomedWindow,

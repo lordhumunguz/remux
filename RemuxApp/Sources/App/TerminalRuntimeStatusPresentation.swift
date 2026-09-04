@@ -64,6 +64,8 @@ struct TerminalRuntimeStatusPresentation: Equatable, Sendable {
             "tmux Error"
         case .remoteExit:
             "Exited"
+        case .seatTaken:
+            "Moved"
         case .runtime:
             "Terminal Error"
         case .userClosed:

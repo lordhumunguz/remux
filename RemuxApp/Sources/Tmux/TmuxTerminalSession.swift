@@ -13,6 +13,9 @@ final class TmuxTerminalSession: ObservableObject {
     @Published private(set) var lastFailedRequest: TmuxSessionController.Request?
     @Published private(set) var transportFailure: TerminalDisconnectReason?
     @Published private(set) var viewportMeasurement: GhosttyTerminalViewportMeasurement?
+    /// Cached result of the one-per-attachment server option probe; `false`
+    /// both when the option is off and when the query could not run.
+    @Published private(set) var serverResponsiveAccordionEnabled = false
 
     private let app: ghostty_app_t
     private(set) var controller: TmuxSessionController!
@@ -42,6 +45,7 @@ final class TmuxTerminalSession: ObservableObject {
     private var didStartLink = false
     private var linkIsActive = false
     private var isShutDown = false
+    private var didProbeResponsiveAccordion = false
     private var shutdownDrainContinuation: CheckedContinuation<Void, Never>?
 
     private final class Relay: @unchecked Sendable {
@@ -185,6 +189,7 @@ final class TmuxTerminalSession: ObservableObject {
             Task { await link.stop() }
         case .ready:
             reconcilePresentationActivity()
+            probeResponsiveAccordionOnce()
         case .attaching, .syncing:
             break
         }
@@ -278,6 +283,17 @@ final class TmuxTerminalSession: ObservableObject {
 
     private func handleRequestFailed(_ request: TmuxSessionController.Request) {
         lastFailedRequest = request
+    }
+
+    private func probeResponsiveAccordionOnce() {
+        guard !didProbeResponsiveAccordion, !isShutDown else { return }
+        didProbeResponsiveAccordion = true
+        Task { [weak self] in
+            guard let self else { return }
+            let enabled = await self.controller.responsiveAccordionEnabled()
+            guard !self.isShutDown else { return }
+            self.serverResponsiveAccordionEnabled = enabled
+        }
     }
 
     // MARK: Viewport and surface creation

@@ -165,6 +165,18 @@ struct GhosttySurfaceStatusOverlay: View {
                 )
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+        } else if reason?.kind == .seatTaken {
+            HStack {
+                GhosttyRepairActionButton(
+                    title: "Take the Seat",
+                    systemName: "arrow.clockwise",
+                    accessibilityIdentifier: "terminal.status.seat.take",
+                    chromeStyle: chromeStyle,
+                    isPrimary: true,
+                    action: onReconnect
+                )
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
         } else if reason?.kind == .serverUnreachable || reason?.kind == .tmuxUnavailable {
             let identifierKind = reason?.kind == .tmuxUnavailable ? "tmux" : "unreachable"
             HStack(spacing: 12) {
@@ -223,6 +235,10 @@ struct GhosttySurfaceStatusOverlay: View {
             return "tmux Unavailable"
         }
 
+        if reason?.kind == .seatTaken {
+            return "Session Moved"
+        }
+
         return "Disconnected"
     }
 
@@ -240,6 +256,10 @@ struct GhosttySurfaceStatusOverlay: View {
         }
 
         if reason?.kind == .tmuxUnavailable {
+            return "TMUX"
+        }
+
+        if reason?.kind == .seatTaken {
             return "TMUX"
         }
 
@@ -262,6 +282,11 @@ struct GhosttySurfaceStatusOverlay: View {
 
         if reason?.kind == .serverUnreachable {
             return "Remux could not reach the server. Check the address, port, network, or VPN."
+        }
+
+        if reason?.kind == .seatTaken {
+            return "Another device attached to this session and took the seat. "
+                + "Take the seat to detach that device and continue here."
         }
 
         return fallback

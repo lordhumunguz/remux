@@ -22,6 +22,9 @@ final class TmuxScreenModel: ObservableObject {
 
     @Published private(set) var session: TmuxTerminalSession?
     @Published private(set) var startupFailure: String?
+    /// Mirrors the session's cached server-option probe for observers one
+    /// level up (settings UI), without handing them the session itself.
+    @Published private(set) var serverResponsiveAccordionEnabled = false
 
     /// The reducer's expectations: the target this session connects to.
     var runtimeConnectionTarget: TmuxConnectionTarget { target }
@@ -53,6 +56,7 @@ final class TmuxScreenModel: ObservableObject {
     private var pendingForegroundInactiveReason: TerminalDisconnectReason?
     private var stateObservation: AnyCancellable?
     private var transportFailureObservation: AnyCancellable?
+    private var responsiveAccordionObservation: AnyCancellable?
     private var stopped = false
     private var initialViewport: TmuxControlViewport?
     private var lastSubmittedClientSize: TmuxSessionController.ClientSize?
@@ -148,6 +152,11 @@ final class TmuxScreenModel: ObservableObject {
             .compactMap { $0 }
             .sink { [weak self] failure in
                 self?.report(.disconnected(failure))
+            }
+
+        responsiveAccordionObservation = session.$serverResponsiveAccordionEnabled
+            .sink { [weak self] enabled in
+                self?.serverResponsiveAccordionEnabled = enabled
             }
 
         GhosttyRuntimeTrace.flowEventIfActive(flow, event: "model.session.created")
@@ -342,6 +351,7 @@ final class TmuxScreenModel: ObservableObject {
         stopped = true
         stateObservation = nil
         transportFailureObservation = nil
+        responsiveAccordionObservation = nil
         terminalScreenAdapter.prepareForSessionShutdown()
         terminalScreenAdapter.invalidate()
         if let session {

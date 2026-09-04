@@ -148,6 +148,56 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         XCTAssertEqual(policy.windowIDsNeedingChange(in: topology), [])
     }
 
+    func testServerAccordionSuppressesTheZoomDefaultInBothDirections() {
+        var policy = TmuxMultipaneZoomDefaultPolicy(isEnabled: true)
+        policy.serverAccordionLayoutEnabled = true
+
+        XCTAssertFalse(policy.appliesZoomDefault)
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(in: topology(zoomed: false, paneCount: 2)),
+            []
+        )
+        // A zoomed window is left to the accordion too; Remux must not unzoom.
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(in: topology(zoomed: true, paneCount: 2)),
+            []
+        )
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(
+                in: topology(zoomed: false, paneCount: 2),
+                includingMatchingWindows: true
+            ),
+            []
+        )
+    }
+
+    func testServerAccordionSuppressionDoesNotMarkWindowsResolved() {
+        var policy = TmuxMultipaneZoomDefaultPolicy(isEnabled: true)
+        policy.serverAccordionLayoutEnabled = true
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(in: topology(zoomed: false, paneCount: 2)),
+            []
+        )
+
+        policy.serverAccordionLayoutEnabled = false
+        XCTAssertTrue(policy.appliesZoomDefault)
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(in: topology(zoomed: false, paneCount: 2)),
+            [1]
+        )
+    }
+
+    func testDisabledPolicyWithServerAccordionDoesNotUnzoom() {
+        var policy = TmuxMultipaneZoomDefaultPolicy()
+        policy.serverAccordionLayoutEnabled = true
+
+        XCTAssertFalse(policy.appliesZoomDefault)
+        XCTAssertEqual(
+            policy.windowIDsNeedingChange(in: topology(zoomed: true, paneCount: 2)),
+            []
+        )
+    }
+
     func testMultipaneZoomDefaultUnzoomsAnAlreadyZoomedWindowWhenDisabled() {
         var policy = TmuxMultipaneZoomDefaultPolicy()
 

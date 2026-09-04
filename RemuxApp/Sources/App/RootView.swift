@@ -156,6 +156,14 @@ private struct RemuxWorkspaceShell: View {
             request: $tailscaleSSHCheckRequest,
             isActive: !isSessionSwitcherPresented && model.connectionSetup == nil
         )
+        .seatTakeoverAlert(
+            request: Binding(
+                get: { model.pendingSeatTakeover },
+                set: { _ in }
+            ),
+            onConfirm: { model.confirmSeatTakeover($0) },
+            onCancel: { model.cancelSeatTakeover() }
+        )
         .sheet(
             isPresented: $isSessionSwitcherPresented,
             onDismiss: cancelSessionSetupIfNeeded
@@ -208,6 +216,14 @@ private struct RemuxWorkspaceShell: View {
             .tailscaleSSHCheckAlert(
                 request: $tailscaleSSHCheckRequest,
                 isActive: true
+            )
+            .seatTakeoverAlert(
+                request: Binding(
+                    get: { model.pendingSeatTakeover },
+                    set: { _ in }
+                ),
+                onConfirm: { model.confirmSeatTakeover($0) },
+                onCancel: { model.cancelSeatTakeover() }
             )
         }
         .sheet(isPresented: connectionSetupSheetIsPresented) {
@@ -515,6 +531,7 @@ private struct RemuxWorkspaceShell: View {
                 snapshot: model.library,
                 activeSessions: model.activeSessions,
                 discoveryStates: model.tmuxSessionDiscoveryStates,
+                serverResponsiveAccordionDetected: model.serverResponsiveAccordionDetected,
                 terminalSettings: terminalSettingsBinding,
                 presentedServerID: $presentedServerID,
                 onAddServer: model.beginNewServer,
@@ -614,6 +631,58 @@ private extension View {
                 request: request,
                 isActive: isActive
             )
+        )
+    }
+
+    func seatTakeoverAlert(
+        request: Binding<RemuxRootModel.SeatTakeoverRequest?>,
+        onConfirm: @escaping (RemuxRootModel.SeatTakeoverRequest) -> Void,
+        onCancel: @escaping () -> Void
+    ) -> some View {
+        modifier(
+            SeatTakeoverAlertModifier(
+                request: request,
+                onConfirm: onConfirm,
+                onCancel: onCancel
+            )
+        )
+    }
+}
+
+private struct SeatTakeoverAlertModifier: ViewModifier {
+    @Binding var request: RemuxRootModel.SeatTakeoverRequest?
+    let onConfirm: (RemuxRootModel.SeatTakeoverRequest) -> Void
+    let onCancel: () -> Void
+
+    func body(content: Content) -> some View {
+        content.alert(
+            "Take the Seat?",
+            isPresented: isPresented,
+            presenting: request
+        ) { request in
+            Button("Take the Seat") {
+                onConfirm(request)
+            }
+            .accessibilityIdentifier("seat-takeover.confirm")
+            Button("Cancel", role: .cancel) {
+                onCancel()
+            }
+            .accessibilityIdentifier("seat-takeover.cancel")
+        } message: { request in
+            Text(
+                "Another device is viewing “\(request.workspace.sessionName)” on "
+                    + "\(request.server.displayName). Attaching will detach it and take the seat."
+            )
+        }
+    }
+
+    private var isPresented: Binding<Bool> {
+        Binding(
+            get: { request != nil },
+            // Dismissal only happens through the two actions, which clear
+            // the request themselves; this keeps confirm/cancel ordering out
+            // of the alert's own dismissal path.
+            set: { _ in }
         )
     }
 }
@@ -801,6 +870,7 @@ private struct ConnectionLibraryView: View {
     let snapshot: ConnectionLibrarySnapshot
     let activeSessions: [ActiveTerminalSession]
     let discoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState]
+    let serverResponsiveAccordionDetected: Bool
     @Binding var terminalSettings: TerminalSettings
     @Binding var presentedServerID: SavedServer.ID?
     let onAddServer: () -> Void
@@ -852,7 +922,10 @@ private struct ConnectionLibraryView: View {
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 NavigationLink {
-                    TerminalSettingsView(settings: $terminalSettings)
+                    TerminalSettingsView(
+                        settings: $terminalSettings,
+                        serverAccordionLayoutDetected: serverResponsiveAccordionDetected
+                    )
                 } label: {
                     Image(systemName: "gearshape")
                 }
@@ -1897,10 +1970,12 @@ private func serverSummary(
 private struct TerminalSettingsView: View {
     @Binding private var sourceSettings: TerminalSettings
     @State private var settings: TerminalSettings
+    private let serverAccordionLayoutDetected: Bool
 
-    init(settings: Binding<TerminalSettings>) {
+    init(settings: Binding<TerminalSettings>, serverAccordionLayoutDetected: Bool = false) {
         _sourceSettings = settings
         _settings = State(initialValue: settings.wrappedValue)
+        self.serverAccordionLayoutDetected = serverAccordionLayoutDetected
     }
 
     var body: some View {
@@ -1951,10 +2026,20 @@ private struct TerminalSettingsView: View {
             } header: {
                 Text("Windows & Panes")
             } footer: {
-                Text(
-                    "You can override this per window from Panes. Remux normally clears zooms "
-                        + "it applied when closing. If one remains on the server, use prefix + z."
-                )
+                if serverAccordionLayoutDetected {
+                    Text(
+                        "Managed by server accordion layout. The attached server grows the "
+                            + "focused pane itself, so Remux zooming is paused for that session. "
+                            + "You can override this per window from Panes. Remux normally clears "
+                            + "zooms it applied when closing. If one remains on the server, use prefix + z."
+                    )
+                    .accessibilityIdentifier("settings.zoom-multipane-windows-by-default.footer.accordion")
+                } else {
+                    Text(
+                        "You can override this per window from Panes. Remux normally clears zooms "
+                            + "it applied when closing. If one remains on the server, use prefix + z."
+                    )
+                }
             }
             .libraryHomeListRowSurface()
 
