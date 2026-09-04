@@ -703,12 +703,32 @@ private struct GhosttyPaneTopologyDiagram: View {
         return name.isEmpty ? pane.tmuxCurrentPath : name
     }
 
+    /// The observed project registry across the panes in this sheet, so
+    /// worktree/clone attribution uses the fleet's own directory names.
+    private var knownProjects: Set<String> {
+        RemuxProjectGrouping.observedProjects(paths: panes.map(\.tmuxCurrentPath))
+    }
+
+    private func projectContext(
+        for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
+    ) -> RemuxProjectGrouping.Context? {
+        guard !pane.tmuxCurrentPath.isEmpty else { return nil }
+        return RemuxProjectGrouping.derive(
+            path: pane.tmuxCurrentPath,
+            knownProjects: knownProjects
+        )
+    }
+
     private func paneLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane,
         size: CGSize
     ) -> some View {
-        VStack(spacing: 2) {
-            Text(directoryName(pane))
+        let context = projectContext(for: pane)
+        return VStack(spacing: 2) {
+            // A worktree directory presents as its canonical project with
+            // the task detail on a secondary line; everything else keeps
+            // the raw directory name.
+            Text(primaryName(for: pane, context: context))
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(
                     pane.id == selectedPaneID
@@ -717,6 +737,14 @@ private struct GhosttyPaneTopologyDiagram: View {
                 )
                 .lineLimit(1)
                 .truncationMode(.middle)
+
+            if let detail = context?.worktreeDetail {
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
 
             Text(commandName(for: pane))
                 .font(.system(size: 11, weight: .medium))
@@ -737,10 +765,24 @@ private struct GhosttyPaneTopologyDiagram: View {
         pane.tmuxCurrentCommand.isEmpty ? "—" : pane.tmuxCurrentCommand
     }
 
+    private func primaryName(
+        for pane: GhosttyPaneSelectionSheetRenderProjection.Pane,
+        context: RemuxProjectGrouping.Context?
+    ) -> String {
+        guard let context, context.worktreeDetail != nil else {
+            return directoryName(pane)
+        }
+        return context.projectKey
+    }
+
     private func accessibilityLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
     ) -> String {
-        "\(directoryName(pane)), \(commandName(for: pane))"
+        if let context = projectContext(for: pane),
+           let detail = context.worktreeDetail {
+            return "\(context.projectKey), \(detail), \(commandName(for: pane))"
+        }
+        return "\(directoryName(pane)), \(commandName(for: pane))"
     }
 }
 

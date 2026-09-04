@@ -240,6 +240,134 @@ final class SessionSwitcherProjectionTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.id), [staging.id, macMini.id, production.id])
     }
 
+    func testProjectionGroupsActiveSessionsByCanonicalProject() {
+        let server = makeServer(name: "Mac Mini")
+        let base = makeWorkspace(
+            server: server,
+            name: "uni",
+            lastOpenedAt: Date(timeIntervalSince1970: 300)
+        )
+        let worktree = makeWorkspace(
+            server: server,
+            name: "adgroup",
+            lastOpenedAt: Date(timeIntervalSince1970: 200)
+        )
+        let clone = makeWorkspace(
+            server: server,
+            name: "uni-followup",
+            lastOpenedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [server], workspaces: [base, worktree, clone]),
+            activeSessions: [
+                makeSession(server: server, workspace: base),
+                makeSession(server: server, workspace: worktree),
+                makeSession(server: server, workspace: clone),
+            ],
+            selectedSessionID: worktree.id,
+            projectContexts: [
+                base.id: RemuxProjectGrouping.Context(
+                    projectKey: "uni",
+                    worktreeDetail: nil
+                ),
+                worktree.id: RemuxProjectGrouping.Context(
+                    projectKey: "reporting_queries",
+                    worktreeDetail: "adgroup"
+                ),
+                clone.id: RemuxProjectGrouping.Context(
+                    projectKey: "uni",
+                    worktreeDetail: nil
+                ),
+            ]
+        )
+
+        XCTAssertTrue(projection.usesActiveProjectGrouping)
+        XCTAssertTrue(projection.ungroupedActiveSessions.isEmpty)
+        XCTAssertEqual(
+            projection.activeProjectGroups.map(\.projectKey),
+            ["uni", "reporting_queries"]
+        )
+        XCTAssertEqual(
+            projection.activeProjectGroups[0].sessions.map(\.id),
+            [base.id, clone.id]
+        )
+        XCTAssertEqual(
+            projection.activeProjectGroups[1].sessions.map(\.distinguishingTitle),
+            ["adgroup"]
+        )
+        XCTAssertEqual(
+            projection.activeProjectGroups[0].sessions.map(\.distinguishingTitle),
+            ["uni", "uni-followup"]
+        )
+    }
+
+    func testProjectionFallsBackToFlatActiveListWithoutProjectContexts() {
+        let server = makeServer(name: "Mac Mini")
+        let first = makeWorkspace(
+            server: server,
+            name: "uni",
+            lastOpenedAt: Date(timeIntervalSince1970: 200)
+        )
+        let second = makeWorkspace(
+            server: server,
+            name: "smetl",
+            lastOpenedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [server], workspaces: [first, second]),
+            activeSessions: [
+                makeSession(server: server, workspace: first),
+                makeSession(server: server, workspace: second),
+            ],
+            selectedSessionID: nil
+        )
+
+        XCTAssertFalse(projection.usesActiveProjectGrouping)
+        XCTAssertEqual(projection.activeProjectGroups, [])
+        XCTAssertEqual(
+            projection.ungroupedActiveSessions.map(\.id),
+            [first.id, second.id]
+        )
+    }
+
+    func testProjectionKeepsUnresolvedSessionsUngroupedAlongsideGroups() {
+        let server = makeServer(name: "Mac Mini")
+        let resolved = makeWorkspace(
+            server: server,
+            name: "uni",
+            lastOpenedAt: Date(timeIntervalSince1970: 200)
+        )
+        let connecting = makeWorkspace(
+            server: server,
+            name: "smetl",
+            lastOpenedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [server], workspaces: [resolved, connecting]),
+            activeSessions: [
+                makeSession(server: server, workspace: resolved),
+                makeSession(server: server, workspace: connecting),
+            ],
+            selectedSessionID: nil,
+            projectContexts: [
+                resolved.id: RemuxProjectGrouping.Context(
+                    projectKey: "uni",
+                    worktreeDetail: nil
+                ),
+            ]
+        )
+
+        XCTAssertTrue(projection.usesActiveProjectGrouping)
+        XCTAssertEqual(projection.activeProjectGroups.map(\.projectKey), ["uni"])
+        XCTAssertEqual(
+            projection.ungroupedActiveSessions.map(\.id),
+            [connecting.id]
+        )
+    }
+
     private func snapshot(
         servers: [SavedServer],
         workspaces: [SavedWorkspace]

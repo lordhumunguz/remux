@@ -6,6 +6,14 @@ struct ActiveSessionSwitcherItem: Identifiable, Equatable {
     let serverName: String
     let runtimeState: TerminalRuntimeState
     let isSelected: Bool
+    let projectContext: RemuxProjectGrouping.Context?
+
+    /// The label that distinguishes this row inside its project group:
+    /// the worktree detail when the session sits on a worktree, else the
+    /// session name.
+    var distinguishingTitle: String {
+        projectContext?.worktreeDetail ?? sessionName
+    }
 }
 
 struct RemoteTmuxSessionIdentity: Hashable {
@@ -28,9 +36,25 @@ struct RecentSessionSwitcherItem: Identifiable, Equatable {
 struct SessionSwitcherProjection: Equatable {
     static let maximumInlineAvailableSessionCount = 3
 
+    /// Active sessions grouped by canonical project. Sessions whose panes
+    /// resolve to a project appear in one group per project key (ordered by
+    /// first appearance); sessions without metadata stay ungrouped.
+    struct ActiveProjectGroup: Identifiable, Equatable {
+        let projectKey: String
+        var sessions: [ActiveSessionSwitcherItem]
+
+        var id: String { projectKey }
+    }
+
     let activeSessions: [ActiveSessionSwitcherItem]
     let availableSessions: [AvailableSessionSwitcherItem]
     let recentSessions: [RecentSessionSwitcherItem]
+    let activeProjectGroups: [ActiveProjectGroup]
+    let ungroupedActiveSessions: [ActiveSessionSwitcherItem]
+
+    var usesActiveProjectGrouping: Bool {
+        !activeProjectGroups.isEmpty
+    }
 
     var inlineAvailableSessions: [AvailableSessionSwitcherItem] {
         Array(availableSessions.prefix(Self.maximumInlineAvailableSessionCount))
@@ -50,7 +74,8 @@ struct SessionSwitcherProjection: Equatable {
         snapshot: ConnectionLibrarySnapshot,
         activeSessions: [ActiveTerminalSession],
         discoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState] = [:],
-        selectedSessionID: SavedWorkspace.ID?
+        selectedSessionID: SavedWorkspace.ID?,
+        projectContexts: [SavedWorkspace.ID: RemuxProjectGrouping.Context] = [:]
     ) {
         self.activeSessions = RemuxActiveSessionCollection
             .sortedForDisplay(activeSessions)
@@ -60,9 +85,30 @@ struct SessionSwitcherProjection: Equatable {
                     sessionName: session.target.workspace.sessionName,
                     serverName: session.target.server.displayName,
                     runtimeState: session.runtimeState,
-                    isSelected: session.id == selectedSessionID
+                    isSelected: session.id == selectedSessionID,
+                    projectContext: projectContexts[session.id]
                 )
             }
+
+        var activeProjectGroups: [ActiveProjectGroup] = []
+        var groupIndexByKey: [String: Int] = [:]
+        var ungroupedActiveSessions: [ActiveSessionSwitcherItem] = []
+        for session in self.activeSessions {
+            guard let context = session.projectContext else {
+                ungroupedActiveSessions.append(session)
+                continue
+            }
+            if let index = groupIndexByKey[context.projectKey] {
+                activeProjectGroups[index].sessions.append(session)
+            } else {
+                groupIndexByKey[context.projectKey] = activeProjectGroups.count
+                activeProjectGroups.append(
+                    ActiveProjectGroup(projectKey: context.projectKey, sessions: [session])
+                )
+            }
+        }
+        self.activeProjectGroups = activeProjectGroups
+        self.ungroupedActiveSessions = ungroupedActiveSessions
 
         let activeWorkspaceIDs = Set(activeSessions.map(\.id))
         let activeIdentities = Set(activeSessions.map {
@@ -223,8 +269,20 @@ struct SessionSwitcherView<NewSessionContent: View>: View {
 
             List {
                 Section {
-                    ForEach(projection.activeSessions) { session in
-                        activeSessionRow(session)
+                    if projection.usesActiveProjectGrouping {
+                        ForEach(projection.activeProjectGroups) { group in
+                            SessionSwitcherProjectHeader(title: group.projectKey)
+                            ForEach(group.sessions) { session in
+                                activeSessionRow(session, title: session.distinguishingTitle)
+                            }
+                        }
+                        ForEach(projection.ungroupedActiveSessions) { session in
+                            activeSessionRow(session)
+                        }
+                    } else {
+                        ForEach(projection.activeSessions) { session in
+                            activeSessionRow(session)
+                        }
                     }
                 } header: {
                     SessionSwitcherSectionHeader(title: "Active")
@@ -352,7 +410,10 @@ struct SessionSwitcherView<NewSessionContent: View>: View {
         return Array(projection.recentSessions.prefix(Self.collapsedRecentSessionCount))
     }
 
-    private func activeSessionRow(_ session: ActiveSessionSwitcherItem) -> some View {
+    private func activeSessionRow(
+        _ session: ActiveSessionSwitcherItem,
+        title: String? = nil
+    ) -> some View {
         Button {
             Haptic.selection()
             onSelectActiveSession(session.id)
@@ -360,6 +421,7 @@ struct SessionSwitcherView<NewSessionContent: View>: View {
         } label: {
             ActiveSessionSwitcherRow(
                 session: session,
+                title: title ?? session.sessionName,
                 chromeStyle: chromeStyle
             )
         }
@@ -543,8 +605,25 @@ private struct SessionSwitcherSectionHeader: View {
     }
 }
 
+private struct SessionSwitcherProjectHeader: View {
+    let title: String
+
+    var body: some View {
+        Label(title, systemImage: "folder")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 2, trailing: 16))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+            .accessibilityIdentifier("terminal.sessions.project-header")
+    }
+}
+
 private struct ActiveSessionSwitcherRow: View {
     let session: ActiveSessionSwitcherItem
+    let title: String
     let chromeStyle: GhosttyTerminalChromeStyle
 
     var body: some View {
@@ -559,7 +638,7 @@ private struct ActiveSessionSwitcherRow: View {
                 .frame(width: 28, height: 32)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(session.sessionName)
+                Text(title)
                     .font(.headline)
                     .foregroundStyle(TerminalSelectionSheetPalette.primary)
                     .lineLimit(1)
@@ -598,6 +677,9 @@ private struct ActiveSessionSwitcherRow: View {
     private var accessibilityLabel: String {
         let status = TerminalRuntimeStatusPresentation.projection(for: session.runtimeState).label
         let current = session.isSelected ? ", current session" : ""
+        if title != session.sessionName {
+            return "\(title), \(session.sessionName), \(session.serverName), \(status)\(current)"
+        }
         return "\(session.sessionName), \(session.serverName), \(status)\(current)"
     }
 }
