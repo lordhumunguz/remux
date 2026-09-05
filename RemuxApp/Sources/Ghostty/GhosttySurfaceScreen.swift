@@ -742,7 +742,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 onFinishDictation: finishComposerDictation,
                 onSend: submitComposer,
                 resumableAgent: focusedResumableAgent,
-                canJumpToAgentWindow: !model.tmuxAgentTopLevelIDs.isEmpty,
+                canJumpToAgentWindow: model.canJumpToTmuxAgentTopLevel,
                 onRunSnippet: runSnippetFromComposer,
                 onResumeAgent: resumeFocusedAgentFromComposer,
                 onJumpToAgentWindow: jumpToAgentWindowFromComposer

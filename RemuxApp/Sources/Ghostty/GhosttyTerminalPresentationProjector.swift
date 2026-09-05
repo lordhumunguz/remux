@@ -496,6 +496,7 @@ struct GhosttyPaneSelectionSheetRenderProjection: Equatable, Sendable {
         let tmuxCurrentPath: String
         let agentInfo: TmuxPaneAgentInfo
         var resumableAgent: AgentIdentity? = nil
+        var projectContext: RemuxProjectGrouping.Context? = nil
     }
 
     let panes: [Pane]
@@ -737,14 +738,25 @@ enum GhosttyTerminalPresentationProjector {
         let viewportPanesByID = Dictionary(
             uniqueKeysWithValues: (viewport?.panes ?? []).map { ($0.id, $0) }
         )
+        // One observed-project registry shared by every pane in the sheet, so
+        // worktree/clone attribution matches across cards without recomputing
+        // the registry per pane.
+        let knownProjects = RemuxProjectGrouping.observedProjects(
+            paths: topLevel.leafIDs.compactMap { viewportPanesByID[$0]?.tmuxCurrentPath }
+        )
         let panes = topLevel.leafIDs.map { paneID in
-            GhosttyPaneSelectionSheetRenderProjection.Pane(
+            let path = viewportPanesByID[paneID]?.tmuxCurrentPath ?? ""
+            return GhosttyPaneSelectionSheetRenderProjection.Pane(
                 id: paneID,
                 frame: viewportPanesByID[paneID]?.normalFrame,
                 tmuxCurrentCommand: viewportPanesByID[paneID]?.tmuxCurrentCommand ?? "",
-                tmuxCurrentPath: viewportPanesByID[paneID]?.tmuxCurrentPath ?? "",
+                tmuxCurrentPath: path,
                 agentInfo: viewportPanesByID[paneID]?.agentInfo ?? .idle,
-                resumableAgent: viewportPanesByID[paneID]?.resumableAgent
+                resumableAgent: viewportPanesByID[paneID]?.resumableAgent,
+                projectContext: RemuxProjectGrouping.derive(
+                    path: path,
+                    knownProjects: knownProjects
+                )
             )
         }
 

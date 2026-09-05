@@ -25,10 +25,21 @@ enum ServerImportError: Error, Equatable, LocalizedError {
 /// this type only performs file and process I/O. Identity file contents are
 /// never read — only their paths travel with the candidates.
 enum ServerImportLoader {
+    /// `NSUserName()` is `mobile` on iOS, which is never the right SSH user,
+    /// so iOS leaves the username empty for the user to complete in server
+    /// setup. macOS pre-fills the local account name.
+    private static var platformDefaultUsername: String {
+        #if os(iOS)
+        ""
+        #else
+        NSUserName()
+        #endif
+    }
+
     static func sshConfigCandidates(
         from url: URL,
         existingServers: [SavedServer],
-        defaultUsername: String = NSUserName()
+        defaultUsername: String = platformDefaultUsername
     ) throws -> [ServerImportCandidate] {
         let rootText: String
         do {
@@ -46,12 +57,15 @@ enum ServerImportLoader {
     static func sshConfigCandidates(
         rootText: String,
         existingServers: [SavedServer],
-        defaultUsername: String = NSUserName()
+        defaultUsername: String = platformDefaultUsername
     ) throws -> [ServerImportCandidate] {
         let homeDirectoryPath = NSHomeDirectory()
         let composed = SSHConfigFileComposer.compose(
             rootText: rootText,
-            homeDirectoryPath: homeDirectoryPath
+            homeDirectoryPath: homeDirectoryPath,
+            listDirectory: { path in
+                try? FileManager.default.contentsOfDirectory(atPath: path)
+            }
         ) { path in
             guard FileManager.default.fileExists(atPath: path) else { return nil }
             return try? String(contentsOfFile: path, encoding: .utf8)

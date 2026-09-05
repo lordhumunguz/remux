@@ -283,8 +283,13 @@ private struct RemuxWorkspaceShell: View {
         let selected = presentation.selectedCandidates
         serverImport?.isImporting = true
         Task {
-            _ = await model.importServers(selected)
-            serverImport = nil
+            do {
+                _ = try await model.importServers(selected)
+                serverImport = nil
+            } catch {
+                serverImport?.isImporting = false
+                serverImportError = error.localizedDescription
+            }
         }
     }
 
@@ -1307,7 +1312,7 @@ private struct ConnectionLibraryView: View {
     }
 
     private var sortedActiveSessions: [ActiveTerminalSession] {
-        RemuxActiveSessionCollection.sortedForDisplay(activeSessions)
+        RemuxActiveSessionCollection.sortedForDisplayByAgentState(activeSessions)
     }
 
     private var visibleConnectedSessions: [ActiveTerminalSession] {
@@ -1995,6 +2000,10 @@ private struct ActiveSessionLibraryRow: View {
             }
 
             Spacer()
+
+            if session.agentState != .idle {
+                TmuxAgentStateBadge(state: session.agentState)
+            }
 
             TerminalRuntimeStateIndicator(state: session.runtimeState)
 

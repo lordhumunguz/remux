@@ -1545,8 +1545,8 @@ final class RemuxRootModel: ObservableObject {
     }
 
     func disconnectActiveSession(_ id: SavedWorkspace.ID) {
-        // Fallback selection follows the order users see in the switcher
-        // and library, not internal activation order.
+        // Fallback selection follows the agent-state display order users see
+        // in the switcher and library, not internal activation order.
         let displayedIndex = RemuxActiveSessionCollection.sortedForDisplayByAgentState(activeSessions)
             .firstIndex { $0.id == id }
         closePreparedTransport(for: id)
@@ -1614,8 +1614,11 @@ final class RemuxRootModel: ObservableObject {
     /// repository, then reloads the library. Imported identities carry no
     /// stored credential; the user completes authentication in server setup,
     /// which verifies before saving. Returns the number of servers imported.
+    /// On failure the library is reloaded so a retry sees servers committed
+    /// before the failure as duplicates, and the error is rethrown for the
+    /// caller to surface.
     @discardableResult
-    func importServers(_ candidates: [ServerImportCandidate]) async -> Int {
+    func importServers(_ candidates: [ServerImportCandidate]) async throws -> Int {
         let profiles = ServerImportPlanner.makeProfiles(for: candidates)
         guard !profiles.isEmpty else { return 0 }
         do {
@@ -1627,8 +1630,8 @@ final class RemuxRootModel: ObservableObject {
             scheduleLibrarySSHPrewarm(snapshot: library)
             return profiles.count
         } catch {
-            transitionToFailed(error)
-            return 0
+            library = (try? await dependencies.profileRepository.loadSnapshot()) ?? library
+            throw error
         }
     }
 

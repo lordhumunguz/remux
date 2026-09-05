@@ -427,6 +427,96 @@ final class SSHConfigFileParserTests: XCTestCase {
         XCTAssertNil(tailscaleAlias.port)
     }
 
+    func testMatchClosesPrecedingHostBlock() {
+        let file = parse("""
+            Host web
+              HostName web.example.test
+              User deploy
+
+            Match host web
+              User root
+              Port 2222
+
+            Host db
+              HostName db.example.test
+            """)
+
+        XCTAssertEqual(file.hosts.map(\.alias), ["web", "db"])
+        let web = file.hosts[0]
+        XCTAssertEqual(web.user, "deploy")
+        XCTAssertNil(web.port)
+    }
+
+    func testMatchKeywordIsCaseInsensitive() {
+        let file = parse("""
+            Host web
+              HostName web.example.test
+            match all
+              User root
+            """)
+
+        XCTAssertEqual(file.hosts.map(\.alias), ["web"])
+        XCTAssertNil(file.hosts[0].user)
+    }
+
+    func testComposerExpandsGlobIncludeAgainstParentDirectory() {
+        let root = """
+            Include ~/.ssh/config.d/*
+
+            Host web
+              HostName web.example.test
+            """
+        let composed = SSHConfigFileComposer.compose(
+            rootText: root,
+            homeDirectoryPath: home,
+            listDirectory: { path in
+                path == "/Users/test/.ssh/config.d" ? ["20-misc", "10-macpro", "notes.txt"] : nil
+            }
+        ) { path in
+            switch path {
+            case "/Users/test/.ssh/config.d/10-macpro":
+                return "Host macpro\n  HostName 100.64.0.1"
+            case "/Users/test/.ssh/config.d/20-misc":
+                return "Host macair\n  HostName 100.64.0.2"
+            default:
+                return nil
+            }
+        }
+        let file = parse(composed)
+
+        XCTAssertEqual(file.hosts.map(\.alias), ["macpro", "macair", "web"])
+    }
+
+    func testComposerResolvesRelativeIncludeAgainstDotSSHDirectory() {
+        var readPaths: [String] = []
+        _ = SSHConfigFileComposer.compose(
+            rootText: "Include config.local",
+            homeDirectoryPath: home
+        ) { path in
+            readPaths.append(path)
+            return nil
+        }
+
+        XCTAssertEqual(readPaths, ["/Users/test/.ssh/config.local"])
+    }
+
+    func testComposerToleratesMissingGlobDirectory() {
+        let root = """
+            Include ~/.ssh/config.d/*.conf
+
+            Host web
+              HostName web.example.test
+            """
+        let composed = SSHConfigFileComposer.compose(
+            rootText: root,
+            homeDirectoryPath: home,
+            listDirectory: { _ in nil }
+        ) { _ in nil }
+        let file = parse(composed)
+
+        XCTAssertEqual(file.hosts.map(\.alias), ["web"])
+    }
+
     private func parse(_ text: String) -> SSHConfigFile {
         SSHConfigFileParser.parse(text, homeDirectoryPath: home)
     }

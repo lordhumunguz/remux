@@ -112,6 +112,42 @@ final class ServerImportPlannerTests: XCTestCase {
         XCTAssertEqual(candidates.map(\.isDuplicate), [false, false])
     }
 
+    func testSSHConfigCandidatesMarkInBatchDuplicatesCaseInsensitively() {
+        let file = SSHConfigFile(
+            hosts: [
+                SSHConfigHost(
+                    alias: "macpro",
+                    hostName: "100.64.0.1",
+                    user: "fei",
+                    port: nil,
+                    identityFile: nil
+                ),
+                SSHConfigHost(
+                    alias: "macpro-alt",
+                    hostName: "100.64.0.1",
+                    user: "FEI",
+                    port: nil,
+                    identityFile: nil
+                ),
+                SSHConfigHost(
+                    alias: "macpro-other-user",
+                    hostName: "100.64.0.1",
+                    user: "root",
+                    port: nil,
+                    identityFile: nil
+                ),
+            ]
+        )
+
+        let candidates = ServerImportPlanner.sshConfigCandidates(
+            from: file,
+            existingServers: [],
+            defaultUsername: "localuser"
+        )
+
+        XCTAssertEqual(candidates.map(\.isDuplicate), [false, true, false])
+    }
+
     func testTailscaleCandidatesKeepOnlinePeersWithTailscaleAuth() {
         let peers = [
             TailscalePeer(

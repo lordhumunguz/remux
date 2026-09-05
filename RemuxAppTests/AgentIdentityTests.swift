@@ -79,7 +79,7 @@ final class AgentIdentityTests: XCTestCase {
     func testResumeCommands() {
         XCTAssertEqual(AgentIdentity.claudeCode.resumeCommand, "claude --resume")
         XCTAssertEqual(AgentIdentity.codex.resumeCommand, "codex resume")
-        XCTAssertEqual(AgentIdentity.opencode.resumeCommand, "opencode --session")
+        XCTAssertEqual(AgentIdentity.opencode.resumeCommand, "opencode --continue")
         XCTAssertEqual(AgentIdentity.kimiCode.resumeCommand, "kimi -S")
         XCTAssertEqual(AgentIdentity.grok.resumeCommand, "grok --resume")
         XCTAssertEqual(AgentIdentity.museCode.resumeCommand, "muse resume")

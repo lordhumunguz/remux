@@ -212,11 +212,15 @@ struct TerminalSettings: Equatable, Codable, Sendable {
 
     // Custom decoding keeps older persisted settings (written before these keys
     // existed) loadable rather than failing the whole store on a missing key.
+    // The theme decodes through its raw string so an unknown value (for
+    // example written by a newer app build) falls back instead of failing
+    // the whole file.
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        let themeRawValue = try container.decodeIfPresent(String.self, forKey: .theme)
         self.init(
             fontSize: try container.decodeIfPresent(Float32.self, forKey: .fontSize),
-            theme: try container.decodeIfPresent(TerminalTheme.self, forKey: .theme) ?? .ghosttyDefault,
+            theme: themeRawValue.flatMap(TerminalTheme.init(rawValue:)) ?? .ghosttyDefault,
             allowInsecureRSAHostKeys: try container.decodeIfPresent(Bool.self, forKey: .allowInsecureRSAHostKeys) ?? false,
             zoomMultipaneWindowsByDefault: try container.decodeIfPresent(
                 Bool.self,

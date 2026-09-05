@@ -4088,7 +4088,7 @@ final class RemuxRootModelTests: XCTestCase {
             ),
         ]
 
-        let imported = await harness.model.importServers(candidates)
+        let imported = try await harness.model.importServers(candidates)
 
         XCTAssertEqual(imported, 2)
         XCTAssertEqual(harness.model.library.servers.map(\.displayName), ["macair", "macpro"])
@@ -4118,8 +4118,8 @@ final class RemuxRootModelTests: XCTestCase {
             isDuplicate: true
         )
 
-        let importedDuplicates = await harness.model.importServers([duplicate])
-        let importedEmpty = await harness.model.importServers([])
+        let importedDuplicates = try await harness.model.importServers([duplicate])
+        let importedEmpty = try await harness.model.importServers([])
 
         XCTAssertEqual(importedDuplicates, 0)
         XCTAssertEqual(importedEmpty, 0)
@@ -4127,6 +4127,43 @@ final class RemuxRootModelTests: XCTestCase {
         XCTAssertEqual(snapshot.servers, [pair.server])
         XCTAssertEqual(harness.model.library.servers, [pair.server])
         XCTAssertEqual(harness.model.state, .library)
+    }
+
+    func testImportServersRethrowsSaveFailureAndReloadsCommittedServers() async throws {
+        let harness = makeHarness()
+        await harness.model.load()
+
+        // Simulate a server committed to the repository that the in-memory
+        // library does not reflect yet, as a partially failed import leaves
+        // behind.
+        let pair = makePasswordBackedServer()
+        try await harness.profileRepository.saveIdentity(pair.identity)
+        try await harness.profileRepository.saveServer(pair.server)
+
+        let failing = ServerImportCandidate(
+            source: .tailscale,
+            displayName: "macair",
+            host: "macair.tail1234.ts.net",
+            port: 22,
+            username: "fei",
+            auth: .tailscaleSSH,
+            isDuplicate: false
+        )
+        await harness.profileRepository.failNextSaveServer(
+            with: ConnectionProfileRepositoryError.missingServer(UUID())
+        )
+
+        do {
+            _ = try await harness.model.importServers([failing])
+            XCTFail("expected importServers to rethrow the save failure")
+        } catch {
+            XCTAssertTrue(error is ConnectionProfileRepositoryError)
+        }
+
+        // The failure must not tear down the app, and the library reload must
+        // expose the committed server so a retry detects it as a duplicate.
+        XCTAssertEqual(harness.model.state, .library)
+        XCTAssertEqual(harness.model.library.servers, [pair.server])
     }
 }
 

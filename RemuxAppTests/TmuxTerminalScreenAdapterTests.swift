@@ -807,6 +807,46 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testPaneSelectionSheetDerivesProjectContextFromSharedRegistry() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "project-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "work")],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "zsh", currentPath: "/Users/test/Local/uni"),
+                pane(id: 11, windowID: 1, x: 40, currentCommand: "zsh", currentPath: "/Users/test/Local/uni2"),
+                pane(id: 12, windowID: 1, y: 12, currentCommand: "zsh", currentPath: "/Users/test/Local/uni-wt-fix"),
+            ],
+            activeWindowID: 1
+        ))
+
+        let topLevelID = try XCTUnwrap(
+            adapter.windowSelectionSheetRenderProjection().selectedWindowID
+        )
+        let projection = adapter.paneSelectionSheetRenderProjection(topLevelID: topLevelID)
+
+        // The numbered clone collapses only because the shared registry sees
+        // the sibling `uni` pane; a per-pane registry would leave it opaque.
+        XCTAssertEqual(
+            projection.panes.map(\.projectContext),
+            [
+                RemuxProjectGrouping.Context(projectKey: "uni", worktreeDetail: nil),
+                RemuxProjectGrouping.Context(projectKey: "uni", worktreeDetail: nil),
+                RemuxProjectGrouping.Context(projectKey: "uni", worktreeDetail: "fix"),
+            ]
+        )
+
+        await session.shutdown()
+    }
+
     func testAgentTopLevelIDsReportOnlyWindowsWithAgents() async throws {
         let runtime = try GhosttyKitRuntime()
         let session = makeSession(runtime: runtime)
@@ -833,6 +873,36 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         let windowIDs = adapter.windowSelectionSheetRenderProjection().windows.map(\.id)
         XCTAssertEqual(adapter.tmuxAgentTopLevelIDs, [windowIDs[1]])
         XCTAssertEqual(adapter.sessionAgent, .claudeCode)
+        XCTAssertTrue(adapter.canJumpToTmuxAgentTopLevel)
+
+        await session.shutdown()
+    }
+
+    func testCanJumpToAgentWindowIsFalseWhenOnlyTheActiveWindowHasAnAgent() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "agent"),
+                window(id: 2, active: false, paneID: 20, name: "shell"),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "claude"),
+                pane(id: 20, windowID: 2, currentCommand: "zsh"),
+            ],
+            activeWindowID: 1
+        ))
+
+        XCTAssertEqual(adapter.tmuxAgentTopLevelIDs.count, 1)
+        XCTAssertFalse(adapter.canJumpToTmuxAgentTopLevel)
 
         await session.shutdown()
     }
@@ -855,6 +925,7 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         ))
 
         XCTAssertTrue(adapter.tmuxAgentTopLevelIDs.isEmpty)
+        XCTAssertFalse(adapter.canJumpToTmuxAgentTopLevel)
         XCTAssertNil(adapter.sessionAgent)
 
         await session.shutdown()

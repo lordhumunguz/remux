@@ -644,6 +644,7 @@ enum GhosttyTerminalHardwareCommandMapping {
         if optionAsAlt,
            let metaText = optionAsAltText(
                modifiers: modifiers,
+               characters: characters,
                charactersIgnoringModifiers: charactersIgnoringModifiers
            ) {
             return .text(metaText)
@@ -657,11 +658,14 @@ enum GhosttyTerminalHardwareCommandMapping {
 
     /// Mirrors desktop Ghostty's `macos-option-as-alt = true`: an Option-modified
     /// printable key sends ESC plus the unmodified character (Meta) instead of
-    /// the Option-composed character, so tmux `M-` bindings work. Command and
-    /// Control keep their existing routes, and mapped keys (arrows, Return, …)
-    /// still travel as key events that already carry the Alt modifier.
+    /// the Option-composed character, so tmux `M-` bindings work. With Shift
+    /// also held, Meta carries the shifted character (M-A, not M-a). Command
+    /// and Control keep their existing routes, and mapped keys (arrows,
+    /// Return, …) still travel as key events that already carry the Alt
+    /// modifier.
     static func optionAsAltText(
         modifiers: UIKeyModifierFlags,
+        characters: String?,
         charactersIgnoringModifiers: String?
     ) -> String? {
         guard modifiers.contains(.alternate) else { return nil }
@@ -669,7 +673,39 @@ enum GhosttyTerminalHardwareCommandMapping {
         guard let charactersIgnoringModifiers, !charactersIgnoringModifiers.isEmpty else {
             return nil
         }
-        return "\u{1B}" + charactersIgnoringModifiers
+        let metaCharacters = metaShiftedCharacters(
+            characters: characters,
+            charactersIgnoringModifiers: charactersIgnoringModifiers,
+            shiftHeld: modifiers.contains(.shift)
+        )
+        return "\u{1B}" + metaCharacters
+    }
+
+    /// The shifted form is trusted from UIKit's `characters` only when it is
+    /// plainly the shift translation of the unmodified input — a single
+    /// uppercased ASCII letter — because `characters` otherwise carries the
+    /// Option composition ("Å" for Option-Shift-A). Letters fall back to the
+    /// uppercase mapping. Shifted digits and punctuation are layout-dependent
+    /// (US "1" → "!") and cannot be derived reliably here, so they keep the
+    /// unshifted form.
+    private static func metaShiftedCharacters(
+        characters: String?,
+        charactersIgnoringModifiers: String,
+        shiftHeld: Bool
+    ) -> String {
+        guard shiftHeld else { return charactersIgnoringModifiers }
+        if let characters, characters.count == 1,
+           let candidate = characters.first,
+           candidate.isASCII, candidate.isLetter,
+           String(candidate) == charactersIgnoringModifiers.uppercased() {
+            return String(candidate)
+        }
+        if charactersIgnoringModifiers.count == 1,
+           let base = charactersIgnoringModifiers.first,
+           base.isASCII, base.isLetter {
+            return base.uppercased()
+        }
+        return charactersIgnoringModifiers
     }
 
     static func resolveHardwareText(

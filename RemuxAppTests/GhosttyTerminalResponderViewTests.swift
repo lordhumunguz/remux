@@ -517,6 +517,45 @@ final class GhosttyTerminalResponderViewTests: XCTestCase {
         )
     }
 
+    func testHardwarePressResolutionOptionShiftSendsShiftedMetaCharacter() {
+        // UIKit's characters carries the Option composition ("Å"), so the
+        // shifted letter comes from uppercasing the unmodified character.
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardA,
+                modifiers: [.alternate, .shift],
+                characters: "Å",
+                charactersIgnoringModifiers: "a",
+                optionAsAlt: true
+            ),
+            .text("\u{1B}A")
+        )
+        // A layout that reports the plain shifted letter is trusted too.
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardA,
+                modifiers: [.alternate, .shift],
+                characters: "A",
+                charactersIgnoringModifiers: "a",
+                optionAsAlt: true
+            ),
+            .text("\u{1B}A")
+        )
+        // Shifted digit forms are layout-dependent ("⁄" is the Option
+        // composition, not necessarily the shift form), so the unshifted
+        // character is kept.
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboard1,
+                modifiers: [.alternate, .shift],
+                characters: "⁄",
+                charactersIgnoringModifiers: "1",
+                optionAsAlt: true
+            ),
+            .text("\u{1B}1")
+        )
+    }
+
     func testHardwarePressResolutionWithoutOptionAsAltKeepsComposedCharacters() {
         XCTAssertEqual(
             GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(

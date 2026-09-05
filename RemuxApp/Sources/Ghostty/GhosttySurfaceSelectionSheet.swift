@@ -732,27 +732,11 @@ private struct GhosttyPaneTopologyDiagram: View {
         return name.isEmpty ? pane.tmuxCurrentPath : name
     }
 
-    /// The observed project registry across the panes in this sheet, so
-    /// worktree/clone attribution uses the fleet's own directory names.
-    private var knownProjects: Set<String> {
-        RemuxProjectGrouping.observedProjects(paths: panes.map(\.tmuxCurrentPath))
-    }
-
-    private func projectContext(
-        for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
-    ) -> RemuxProjectGrouping.Context? {
-        guard !pane.tmuxCurrentPath.isEmpty else { return nil }
-        return RemuxProjectGrouping.derive(
-            path: pane.tmuxCurrentPath,
-            knownProjects: knownProjects
-        )
-    }
-
     private func paneLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane,
         size: CGSize
     ) -> some View {
-        let context = projectContext(for: pane)
+        let context = pane.projectContext
         return VStack(spacing: 2) {
             HStack(spacing: 4) {
                 TmuxAgentStateBadge(state: pane.agentInfo.state)
@@ -837,7 +821,7 @@ private struct GhosttyPaneTopologyDiagram: View {
     private func accessibilityLabel(
         for pane: GhosttyPaneSelectionSheetRenderProjection.Pane
     ) -> String {
-        let context = projectContext(for: pane)
+        let context = pane.projectContext
         var parts = [primaryName(for: pane, context: context)]
         if let detail = context?.worktreeDetail {
             parts.append(detail)

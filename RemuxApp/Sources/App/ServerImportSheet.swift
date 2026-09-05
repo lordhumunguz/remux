@@ -115,7 +115,7 @@ private struct ServerImportCandidateRow: View {
                     Text(candidate.displayName)
                         .font(.headline)
                         .lineLimit(1)
-                    Text("\(candidate.username)@\(candidate.host):\(candidate.port)")
+                    Text(hostLabel)
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                         .lineLimit(1)
@@ -142,6 +142,11 @@ private struct ServerImportCandidateRow: View {
         .buttonStyle(.plain)
         .disabled(candidate.isDuplicate)
         .accessibilityIdentifier("server-import.row.\(candidate.displayName)")
+    }
+
+    private var hostLabel: String {
+        let userPrefix = candidate.username.isEmpty ? "" : "\(candidate.username)@"
+        return "\(userPrefix)\(candidate.host):\(candidate.port)"
     }
 
     private var authLabel: String {

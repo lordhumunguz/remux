@@ -147,6 +147,10 @@ protocol GhosttyTmuxActionModeling: ObservableObject {
     /// running a detected coding agent, in window order.
     var tmuxAgentTopLevelIDs: [UUID] { get }
 
+    /// Whether "jump to agent window" would move focus: an agent window
+    /// other than the currently active one exists.
+    var canJumpToTmuxAgentTopLevel: Bool { get }
+
     /// Best-effort "jump to agent window": cycles focus to the next window
     /// whose panes run a detected agent.
     @discardableResult

@@ -57,18 +57,23 @@ struct ImportedServerProfile: Equatable, Sendable {
 }
 
 /// Maps parsed ssh-config hosts and Tailscale peers into import candidates.
-/// A candidate is a duplicate when an existing profile already matches its
-/// host, port, and username (compared case-insensitively); duplicates stay
-/// visible in the picker but can neither be selected nor imported.
+/// A candidate is a duplicate when an existing profile or an earlier
+/// candidate in the same batch already matches its host, port, and username
+/// (compared case-insensitively); duplicates stay visible in the picker but
+/// can neither be selected nor imported.
 enum ServerImportPlanner {
     static func sshConfigCandidates(
         from file: SSHConfigFile,
         existingServers: [SavedServer],
         defaultUsername: String
     ) -> [ServerImportCandidate] {
-        file.hosts.map { host in
+        var batchKeys = Set<String>()
+        return file.hosts.map { host in
             let username = host.user ?? defaultUsername
             let port = host.port ?? 22
+            let isBatchDuplicate = !batchKeys.insert(
+                duplicateKey(host: host.hostName, port: port, username: username)
+            ).inserted
             return ServerImportCandidate(
                 source: .sshConfig,
                 displayName: host.alias,
@@ -76,7 +81,7 @@ enum ServerImportPlanner {
                 port: port,
                 username: username,
                 auth: host.identityFile.map { .privateKey(identityFile: $0) } ?? .unset,
-                isDuplicate: isDuplicate(
+                isDuplicate: isBatchDuplicate || isDuplicate(
                     host: host.hostName,
                     port: port,
                     username: username,
@@ -91,7 +96,8 @@ enum ServerImportPlanner {
         existingServers: [SavedServer],
         defaultUsername: String
     ) -> [ServerImportCandidate] {
-        peers
+        var batchKeys = Set<String>()
+        return peers
             .filter { $0.online }
             .compactMap { peer in
                 let host = !peer.dnsName.isEmpty ? peer.dnsName : peer.tailscaleIP
@@ -99,6 +105,9 @@ enum ServerImportPlanner {
                 let detail = [peer.os, peer.userLoginName]
                     .compactMap { $0 }
                     .joined(separator: " · ")
+                let isBatchDuplicate = !batchKeys.insert(
+                    duplicateKey(host: host, port: 22, username: defaultUsername)
+                ).inserted
                 return ServerImportCandidate(
                     source: .tailscale,
                     displayName: !peer.hostName.isEmpty ? peer.hostName : host,
@@ -107,7 +116,7 @@ enum ServerImportPlanner {
                     username: defaultUsername,
                     auth: .tailscaleSSH,
                     detail: detail.isEmpty ? nil : detail,
-                    isDuplicate: isDuplicate(
+                    isDuplicate: isBatchDuplicate || isDuplicate(
                         host: host,
                         port: 22,
                         username: defaultUsername,
@@ -162,5 +171,9 @@ enum ServerImportPlanner {
                 server.port == port &&
                 server.username.caseInsensitiveCompare(username) == .orderedSame
         }
+    }
+
+    private static func duplicateKey(host: String, port: Int, username: String) -> String {
+        "\(host.lowercased())\u{1F}\(port)\u{1F}\(username.lowercased())"
     }
 }

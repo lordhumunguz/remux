@@ -414,6 +414,19 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         }
     }
 
+    /// False when the only agent window is already the active one, so the
+    /// "jump to agent window" action is not offered as a silent no-op.
+    var canJumpToTmuxAgentTopLevel: Bool {
+        guard let topology = latestTopology else { return false }
+        return topology.windows.contains { window in
+            window.id != topology.activeWindowID
+                && topology.panes.contains {
+                    $0.windowID == window.id
+                        && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+                }
+        }
+    }
+
     private var runtimePhase: GhosttyTerminalRuntimePhase {
         guard let session else {
             return .failed(message: "terminal session unavailable", reason: nil)

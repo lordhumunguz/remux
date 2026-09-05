@@ -42,8 +42,11 @@ terminal, and uploads photos and files, with markup for images.
 - **Direct SSH**: Remux connects straight to the server, with no relay and
   no account. Passwords and private keys are stored in the iOS Keychain,
   and trusted host keys are remembered.
-- **Themes**: Ghostty default, Catppuccin Mocha, and Catppuccin Latte,
-  with adjustable font size.
+- **Themes**: Ghostty default, Catppuccin Mocha, Catppuccin Latte, and Tokyo
+  Night, with adjustable font size.
+- **Import**: Bring in servers from an ssh config file (iOS) or from
+  ~/.ssh/config and Tailscale peers (Mac). Authentication is completed in
+  server setup.
 
 ## Installation
 

@@ -49,7 +49,7 @@ enum AgentIdentity: String, CaseIterable, Equatable, Sendable {
         switch self {
         case .claudeCode: "claude --resume"
         case .codex: "codex resume"
-        case .opencode: "opencode --session"
+        case .opencode: "opencode --continue"
         case .kimiCode: "kimi -S"
         case .grok: "grok --resume"
         case .museCode: "muse resume"

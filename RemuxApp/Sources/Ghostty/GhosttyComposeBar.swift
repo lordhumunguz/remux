@@ -663,17 +663,17 @@ struct GhosttyComposeBar: View {
         } label: {
             ZStack {
                 Circle()
-                    .fill(Color(uiColor: .systemBlue))
+                    .fill(chromeStyle.accent)
 
                 if state.isSending {
                     ProgressView()
                         .controlSize(.small)
-                        .tint(.white)
+                        .tint(chromeStyle.accentForeground)
                 } else {
                     Image(systemName: "arrow.up")
                         .font(.system(size: 16, weight: .bold))
                         .symbolRenderingMode(.monochrome)
-                        .foregroundStyle(.white)
+                        .foregroundStyle(chromeStyle.accentForeground)
                 }
             }
                 .frame(width: 34, height: 34)
@@ -1166,13 +1166,15 @@ private struct GhosttyComposerAttachmentStrip: View {
 }
 
 private struct GhosttyComposerAttachmentProgress: View {
+    @Environment(\.ghosttyTerminalChromeStyle) private var chromeStyle
+
     let uploadCount: Int
     let progress: GhosttyAttachmentTransferProgress?
 
     var body: some View {
         HStack(spacing: 8) {
             ProgressView(value: progressFraction)
-                .tint(.blue)
+                .tint(chromeStyle.accent)
 
             Text(progressLabel)
                 .font(.caption2.monospacedDigit())

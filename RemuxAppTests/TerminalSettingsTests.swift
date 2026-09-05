@@ -167,6 +167,16 @@ final class TerminalSettingsTests: XCTestCase {
         XCTAssertTrue(settings.optionAsAlt)
     }
 
+    func testDecodingUnknownThemeFallsBackToGhosttyDefault() throws {
+        let data = Data(#"{"fontSize":16,"theme":"solarizedFuture","optionAsAlt":false}"#.utf8)
+
+        let settings = try JSONDecoder().decode(TerminalSettings.self, from: data)
+
+        XCTAssertEqual(settings.theme, .ghosttyDefault)
+        XCTAssertEqual(settings.fontSize, 16)
+        XCTAssertFalse(settings.optionAsAlt)
+    }
+
     func testOptionAsAltRoundTripsThroughCodable() throws {
         let settings = TerminalSettings(fontSize: nil, theme: .tokyoNight, optionAsAlt: false)
 

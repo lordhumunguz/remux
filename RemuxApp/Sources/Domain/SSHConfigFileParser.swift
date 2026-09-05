@@ -65,6 +65,15 @@ enum SSHConfigFileParser {
                     values: [:]
                 )
                 currentHasContent = true
+            case "match":
+                // `Match` blocks are unsupported, but the line still closes
+                // the current block; the negated-glob placeholder keeps the
+                // Match body from leaking into the preceding `Host` block.
+                if currentHasContent {
+                    blocks.append(current)
+                }
+                current = Block(patterns: ["!*"], values: [:])
+                currentHasContent = true
             case "include":
                 continue
             default:
@@ -137,7 +146,7 @@ enum SSHConfigFileParser {
         !pattern.hasPrefix("!") && !pattern.contains("*") && !pattern.contains("?")
     }
 
-    private static func globMatches(_ pattern: String, _ value: String) -> Bool {
+    static func globMatches(_ pattern: String, _ value: String) -> Bool {
         guard pattern.contains("*") || pattern.contains("?") else {
             return pattern.caseInsensitiveCompare(value) == .orderedSame
         }
@@ -253,25 +262,31 @@ enum SSHConfigSyntax {
 
 /// Resolves `Include` directives one level deep by splicing the referenced
 /// file contents into the root text at the directive's position, matching
-/// OpenSSH's inline semantics. Missing or unreadable files are skipped, and
-/// includes inside included files are not followed.
+/// OpenSSH's inline semantics. Relative paths resolve against `~/.ssh/`,
+/// matching OpenSSH's rule for the user config file, and glob metacharacters
+/// in the final path component expand against the parent directory listing
+/// in sorted order. Missing or unreadable files and directories are skipped,
+/// and includes inside included files are not followed.
 enum SSHConfigFileComposer {
     static func compose(
         rootText: String,
         homeDirectoryPath: String,
+        listDirectory: (String) -> [String]? = { _ in nil },
         readFile: (String) -> String?
     ) -> String {
         var lines: [String] = []
         for rawLine in rootText.components(separatedBy: .newlines) {
             if let directive = SSHConfigSyntax.parseDirective(from: rawLine),
                directive.keyword == "include" {
-                for path in SSHConfigSyntax.tokenize(directive.argument) {
-                    let expanded = SSHConfigSyntax.expandHome(
-                        path,
-                        homeDirectoryPath: homeDirectoryPath
-                    )
-                    if let contents = readFile(expanded) {
-                        lines.append(contents)
+                for token in SSHConfigSyntax.tokenize(directive.argument) {
+                    for path in resolveIncludePaths(
+                        token,
+                        homeDirectoryPath: homeDirectoryPath,
+                        listDirectory: listDirectory
+                    ) {
+                        if let contents = readFile(path) {
+                            lines.append(contents)
+                        }
                     }
                 }
             } else {
@@ -279,5 +294,30 @@ enum SSHConfigFileComposer {
             }
         }
         return lines.joined(separator: "\n")
+    }
+
+    /// Resolves one `Include` token to concrete file paths: tilde-expanded,
+    /// relative paths anchored at `~/.ssh/`, and globs expanded against the
+    /// parent directory. Unmatched patterns and missing directories yield no
+    /// paths.
+    private static func resolveIncludePaths(
+        _ token: String,
+        homeDirectoryPath: String,
+        listDirectory: (String) -> [String]?
+    ) -> [String] {
+        var path = SSHConfigSyntax.expandHome(token, homeDirectoryPath: homeDirectoryPath)
+        if !path.hasPrefix("/") {
+            path = homeDirectoryPath + "/.ssh/" + path
+        }
+        guard path.contains("*") || path.contains("?") else {
+            return [path]
+        }
+        let directory = (path as NSString).deletingLastPathComponent
+        let pattern = (path as NSString).lastPathComponent
+        guard let entries = listDirectory(directory) else { return [] }
+        return entries
+            .filter { SSHConfigFileParser.globMatches(pattern, $0) }
+            .sorted()
+            .map { directory + "/" + $0 }
     }
 }
