@@ -102,6 +102,11 @@ struct GhosttyTerminalChromeStyle {
         accent: Color(uiColor: .catppuccinLatteTerminalChromeAccent),
         accentForeground: Color(uiColor: .terminalChromeAccentForegroundForLightAccent)
     )
+
+    static let tokyoNight = GhosttyTerminalChromeStyle(
+        accent: Color(uiColor: .tokyoNightTerminalChromeAccent),
+        accentForeground: Color(uiColor: .terminalChromeAccentForegroundForDarkAccent)
+    )
 }
 
 private struct GhosttyTerminalChromeStyleKey: EnvironmentKey {
@@ -124,6 +129,8 @@ extension TerminalTheme {
             .catppuccinMocha
         case .remuxLight:
             .catppuccinLatte
+        case .tokyoNight:
+            .tokyoNight
         }
     }
 }
@@ -656,6 +663,7 @@ private extension UIColor {
     static let ghosttyDefaultTerminalChromeAccent = UIColor(red: 0.38, green: 0.69, blue: 0.94, alpha: 1.0)
     static let catppuccinMochaTerminalChromeAccent = UIColor(red: 0.54, green: 0.71, blue: 0.98, alpha: 1.0)
     static let catppuccinLatteTerminalChromeAccent = UIColor(red: 0.12, green: 0.40, blue: 0.96, alpha: 1.0)
+    static let tokyoNightTerminalChromeAccent = UIColor(red: 0.478, green: 0.635, blue: 0.969, alpha: 1.0)
     static let terminalChromeAccentForegroundForDarkAccent = UIColor.black.withAlphaComponent(0.74)
     static let terminalChromeAccentForegroundForLightAccent = UIColor.white
 }

@@ -10,6 +10,7 @@ struct GhosttySurfaceScreenPresentation: Equatable {
     let workspaceID: SavedWorkspace.ID
     let sessionName: String
     let terminalTheme: TerminalTheme
+    let optionAsAlt: Bool
     let loadingTitle: String
 }
 
@@ -279,6 +280,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                             responderHandoff: keyboardResponderHandoff,
                             trackpadDriver: trackpadDriver,
                             keyboardAppearance: presentation.terminalTheme.terminalKeyboardAppearance,
+                            optionAsAlt: presentation.optionAsAlt,
                             sendText: sendTerminalText,
                             sendPaste: sendTerminalPaste,
                             sendKeyEvent: sendTerminalKeyEvent,
@@ -2563,7 +2565,7 @@ extension TerminalTheme {
         switch self {
         case .remuxLight:
             .light
-        case .ghosttyDefault, .remuxDark:
+        case .ghosttyDefault, .remuxDark, .tokyoNight:
             .dark
         }
     }

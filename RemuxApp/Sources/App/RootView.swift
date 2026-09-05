@@ -1077,6 +1077,7 @@ private struct ConnectionLibraryView: View {
                 } label: {
                     Image(systemName: "gearshape")
                 }
+                .tint(LibraryHomePalette.controlAccent)
                 .accessibilityIdentifier("library.settings")
             }
 
@@ -1090,6 +1091,7 @@ private struct ConnectionLibraryView: View {
                 Button(action: onAddServer) {
                     Image(systemName: "plus")
                 }
+                .tint(LibraryHomePalette.controlAccent)
                 .accessibilityLabel("Add Server")
                 .accessibilityIdentifier("library.add-server")
             }
@@ -1403,7 +1405,7 @@ private extension TerminalTheme {
         switch self {
         case .remuxLight:
             .light
-        case .ghosttyDefault, .remuxDark:
+        case .ghosttyDefault, .remuxDark, .tokyoNight:
             .dark
         }
     }
@@ -1467,10 +1469,13 @@ private struct LibraryHomeSectionHeader: View {
 }
 
 private extension UIColor {
+    // Dark variants are the Tokyo Night family so Remux's own chrome matches
+    // the terminal palette: bg #1a1b26, card #24283b, fg #c0caf5, muted
+    // #a9b1d6, accent #7aa2f7.
     static let libraryHomeBackground = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.15, green: 0.17, blue: 0.21, alpha: 1.0)
+            UIColor(red: 0.102, green: 0.106, blue: 0.149, alpha: 1.0)
         default:
             .systemGroupedBackground
         }
@@ -1479,7 +1484,7 @@ private extension UIColor {
     static let libraryHomeRowSurface = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.21, green: 0.23, blue: 0.28, alpha: 1.0)
+            UIColor(red: 0.141, green: 0.157, blue: 0.231, alpha: 1.0)
         default:
             .secondarySystemGroupedBackground
         }
@@ -1497,7 +1502,7 @@ private extension UIColor {
     static let libraryHomeSectionHeader = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.72, green: 0.74, blue: 0.80, alpha: 1.0)
+            UIColor(red: 0.663, green: 0.694, blue: 0.839, alpha: 1.0)
         default:
             .secondaryLabel
         }
@@ -1506,7 +1511,7 @@ private extension UIColor {
     static let libraryHomeToolbarTint = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.91, green: 0.93, blue: 0.98, alpha: 1.0)
+            UIColor(red: 0.753, green: 0.792, blue: 0.961, alpha: 1.0)
         default:
             .label
         }
@@ -1515,7 +1520,7 @@ private extension UIColor {
     static let libraryHomeControlAccent = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.39, green: 0.64, blue: 1.0, alpha: 1.0)
+            UIColor(red: 0.478, green: 0.635, blue: 0.969, alpha: 1.0)
         default:
             .systemBlue
         }
@@ -1524,7 +1529,7 @@ private extension UIColor {
     static let libraryHomeRowIconForeground = UIColor { traits in
         switch traits.userInterfaceStyle {
         case .dark:
-            UIColor(red: 0.79, green: 0.83, blue: 0.91, alpha: 1.0)
+            UIColor(red: 0.663, green: 0.694, blue: 0.839, alpha: 1.0)
         default:
             .secondaryLabel
         }
@@ -2179,6 +2184,21 @@ private struct TerminalSettingsView: View {
             .libraryHomeListRowSurface()
 
             Section {
+                Toggle("Option sends Alt", isOn: optionAsAltBinding)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityIdentifier("settings.option-as-alt")
+            } header: {
+                Text("Keyboard")
+            } footer: {
+                Text(
+                    "Hardware keyboards only: Option acts as Meta, sending ESC before the key "
+                        + "(for tmux bindings like M-g or M-1), like desktop Ghostty's "
+                        + "macos-option-as-alt. Off keeps Option's composed characters."
+                )
+            }
+            .libraryHomeListRowSurface()
+
+            Section {
                 Toggle(
                     "Zoom multipane windows",
                     isOn: zoomMultipaneWindowsByDefaultBinding
@@ -2282,6 +2302,16 @@ private struct TerminalSettingsView: View {
             get: { settings.zoomMultipaneWindowsByDefault },
             set: { value in
                 settings.zoomMultipaneWindowsByDefault = value
+                sourceSettings = settings
+            }
+        )
+    }
+
+    private var optionAsAltBinding: Binding<Bool> {
+        Binding(
+            get: { settings.optionAsAlt },
+            set: { value in
+                settings.optionAsAlt = value
                 sourceSettings = settings
             }
         )

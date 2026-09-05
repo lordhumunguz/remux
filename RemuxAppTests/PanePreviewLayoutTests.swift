@@ -83,4 +83,11 @@ final class PanePreviewLayoutTests: XCTestCase {
         XCTAssertLessThanOrEqual(height, 320)
     }
 
+    func testPanePreviewCaptureSkipsNarrowPanes() {
+        XCTAssertFalse(PanePreviewLayout.shouldCapturePanePreview(columns: 0))
+        XCTAssertFalse(PanePreviewLayout.shouldCapturePanePreview(columns: 39))
+        XCTAssertTrue(PanePreviewLayout.shouldCapturePanePreview(columns: 40))
+        XCTAssertTrue(PanePreviewLayout.shouldCapturePanePreview(columns: 120))
+    }
+
 }

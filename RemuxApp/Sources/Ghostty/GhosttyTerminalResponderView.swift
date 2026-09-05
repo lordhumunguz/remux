@@ -40,6 +40,7 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
     let responderHandoff: GhosttyKeyboardResponderHandoff
     let trackpadDriver: GhosttyKeyboardCursorTrackpadDriver
     let keyboardAppearance: UIKeyboardAppearance
+    let optionAsAlt: Bool
     let sendText: (String) -> Bool
     let sendPaste: (String) -> Bool
     let sendKeyEvent: (GhosttySurfaceKeyEvent) -> Bool
@@ -53,6 +54,7 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
         responderHandoff: GhosttyKeyboardResponderHandoff,
         trackpadDriver: GhosttyKeyboardCursorTrackpadDriver,
         keyboardAppearance: UIKeyboardAppearance = .dark,
+        optionAsAlt: Bool = true,
         sendText: @escaping (String) -> Bool,
         sendPaste: @escaping (String) -> Bool,
         sendKeyEvent: @escaping (GhosttySurfaceKeyEvent) -> Bool,
@@ -65,6 +67,7 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
         self.responderHandoff = responderHandoff
         self.trackpadDriver = trackpadDriver
         self.keyboardAppearance = keyboardAppearance
+        self.optionAsAlt = optionAsAlt
         self.sendText = sendText
         self.sendPaste = sendPaste
         self.sendKeyEvent = sendKeyEvent
@@ -86,6 +89,7 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
             wantsFirstResponder: wantsFirstResponder,
             activationToken: activationToken,
             keyboardAppearance: keyboardAppearance,
+            optionAsAlt: optionAsAlt,
             sendText: { sendText(GhosttyTerminalInputNormalizer.normalize($0)) },
             sendPaste: sendPaste,
             sendKeyEvent: sendKeyEvent,
@@ -126,6 +130,7 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
     private var isInputEnabled = false
     private var wantsFirstResponder = false
     private var activationToken = -1
+    private var optionAsAltEnabled = true
     private var pendingFirstResponderRequest = false
     private var responderReconciliationScheduled = false
     private var sendTextHandler: ((String) -> Bool)?
@@ -154,6 +159,7 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
         wantsFirstResponder: Bool,
         activationToken: Int,
         keyboardAppearance: UIKeyboardAppearance = .dark,
+        optionAsAlt: Bool = true,
         sendText: @escaping (String) -> Bool,
         sendPaste: @escaping (String) -> Bool,
         sendKeyEvent: @escaping (GhosttySurfaceKeyEvent) -> Bool,
@@ -183,6 +189,7 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
         self.isInputEnabled = isEnabled
         self.wantsFirstResponder = wantsFirstResponder
         self.keyboardAppearance = keyboardAppearance
+        self.optionAsAltEnabled = optionAsAlt
         self.sendTextHandler = sendText
         self.sendPasteHandler = sendPaste
         self.sendKeyEventHandler = sendKeyEvent
@@ -406,7 +413,8 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
                 keyCode: key.keyCode,
                 modifiers: key.modifierFlags,
                 characters: key.characters,
-                charactersIgnoringModifiers: key.charactersIgnoringModifiers
+                charactersIgnoringModifiers: key.charactersIgnoringModifiers,
+                optionAsAlt: optionAsAltEnabled
             ) else {
                 unhandledPresses.insert(press)
                 continue
@@ -622,7 +630,8 @@ enum GhosttyTerminalHardwareCommandMapping {
         keyCode: UIKeyboardHIDUsage,
         modifiers: UIKeyModifierFlags,
         characters: String,
-        charactersIgnoringModifiers: String?
+        charactersIgnoringModifiers: String?,
+        optionAsAlt: Bool = false
     ) -> GhosttyTerminalHardwareCommandAction? {
         if let action = resolveHardwareKey(
             keyCode: keyCode,
@@ -632,10 +641,35 @@ enum GhosttyTerminalHardwareCommandMapping {
             return action
         }
 
+        if optionAsAlt,
+           let metaText = optionAsAltText(
+               modifiers: modifiers,
+               charactersIgnoringModifiers: charactersIgnoringModifiers
+           ) {
+            return .text(metaText)
+        }
+
         guard let text = resolveHardwareText(characters: characters, modifiers: modifiers) else {
             return nil
         }
         return .text(text)
+    }
+
+    /// Mirrors desktop Ghostty's `macos-option-as-alt = true`: an Option-modified
+    /// printable key sends ESC plus the unmodified character (Meta) instead of
+    /// the Option-composed character, so tmux `M-` bindings work. Command and
+    /// Control keep their existing routes, and mapped keys (arrows, Return, …)
+    /// still travel as key events that already carry the Alt modifier.
+    static func optionAsAltText(
+        modifiers: UIKeyModifierFlags,
+        charactersIgnoringModifiers: String?
+    ) -> String? {
+        guard modifiers.contains(.alternate) else { return nil }
+        guard !modifiers.contains(.command), !modifiers.contains(.control) else { return nil }
+        guard let charactersIgnoringModifiers, !charactersIgnoringModifiers.isEmpty else {
+            return nil
+        }
+        return "\u{1B}" + charactersIgnoringModifiers
     }
 
     static func resolveHardwareText(

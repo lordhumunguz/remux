@@ -64,6 +64,14 @@ enum PanePreviewLayout {
     private static let portraitCardHeightRatio: CGFloat = 1.10
     private static let landscapeCardHeightRatio: CGFloat = 3.0 / 4.0
 
+    /// Panes narrower than this produce an unreadable thumbnail, so capture is
+    /// skipped and the picker tile keeps its label-only fallback.
+    static let minimumCaptureColumns: UInt32 = 40
+
+    static func shouldCapturePanePreview(columns: UInt32) -> Bool {
+        columns >= minimumCaptureColumns
+    }
+
     /// The "New Window" affordance is a fixed sheet action, not a trailing grid
     /// cell, so dense sessions can scroll without hiding the create command.
     private static let portraitColumnCount: Int = 2
