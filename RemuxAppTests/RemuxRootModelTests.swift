@@ -3935,6 +3935,72 @@ final class RemuxRootModelTests: XCTestCase {
 
         return (server, identity)
     }
+
+    func testImportServersPersistsImportedProfilesThroughRepository() async throws {
+        let harness = makeHarness()
+        await harness.model.load()
+
+        let candidates = [
+            ServerImportCandidate(
+                source: .sshConfig,
+                displayName: "macpro",
+                host: "100.64.0.1",
+                port: 22,
+                username: "fei",
+                auth: .privateKey(identityFile: "/Users/test/.ssh/id_ed25519"),
+                isDuplicate: false
+            ),
+            ServerImportCandidate(
+                source: .tailscale,
+                displayName: "macair",
+                host: "macair.tail1234.ts.net",
+                port: 22,
+                username: "fei",
+                auth: .tailscaleSSH,
+                isDuplicate: false
+            ),
+        ]
+
+        let imported = await harness.model.importServers(candidates)
+
+        XCTAssertEqual(imported, 2)
+        XCTAssertEqual(harness.model.library.servers.map(\.displayName), ["macair", "macpro"])
+        let snapshot = try await harness.profileRepository.loadSnapshot()
+        XCTAssertEqual(snapshot.servers.map(\.displayName), ["macair", "macpro"])
+        XCTAssertEqual(snapshot.identities.map(\.authenticationKind), [.none, .privateKey])
+        for server in snapshot.servers {
+            XCTAssertNotNil(snapshot.identity(id: server.identityID))
+        }
+        // Import never stores credentials; server setup completes auth later.
+        let storedCredentials = await harness.credentialStore.credentialsSnapshot()
+        XCTAssertTrue(storedCredentials.isEmpty)
+    }
+
+    func testImportServersSkipsDuplicatesAndEmptySelections() async throws {
+        let pair = makePasswordBackedServer()
+        let harness = makeHarness(servers: [pair.server], identities: [pair.identity])
+        await harness.model.load()
+
+        let duplicate = ServerImportCandidate(
+            source: .sshConfig,
+            displayName: "Build Host",
+            host: "build.example.test",
+            port: 22,
+            username: "builder",
+            auth: .unset,
+            isDuplicate: true
+        )
+
+        let importedDuplicates = await harness.model.importServers([duplicate])
+        let importedEmpty = await harness.model.importServers([])
+
+        XCTAssertEqual(importedDuplicates, 0)
+        XCTAssertEqual(importedEmpty, 0)
+        let snapshot = try await harness.profileRepository.loadSnapshot()
+        XCTAssertEqual(snapshot.servers, [pair.server])
+        XCTAssertEqual(harness.model.library.servers, [pair.server])
+        XCTAssertEqual(harness.model.state, .library)
+    }
 }
 
 private struct RemuxRootModelHarness {
