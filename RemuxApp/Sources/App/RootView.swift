@@ -103,6 +103,9 @@ private struct RemuxWorkspaceShell: View {
     @State private var isSessionSwitcherPresented = false
     @State private var presentedServerID: SavedServer.ID?
     @State private var connectionSetupSheetShowsServerSummary = true
+    @State private var serverImport: ServerImportPresentation?
+    @State private var isSSHConfigImporterPresented = false
+    @State private var serverImportError: String?
 
     var body: some View {
         ZStack {
@@ -236,6 +239,123 @@ private struct RemuxWorkspaceShell: View {
                     isActive: true
                 )
         }
+        .sheet(isPresented: serverImportSheetIsPresented) {
+            serverImportSheet
+        }
+    }
+
+    private var serverImportSheetIsPresented: Binding<Bool> {
+        Binding(
+            get: { serverImport != nil },
+            set: { isPresented in
+                if !isPresented {
+                    serverImport = nil
+                }
+            }
+        )
+    }
+
+    @ViewBuilder
+    private var serverImportSheet: some View {
+        if let presentation = serverImport {
+            ServerImportSheet(
+                presentation: Binding(
+                    get: { serverImport ?? presentation },
+                    set: { serverImport = $0 }
+                ),
+                onCancel: { serverImport = nil },
+                onImport: importSelectedServers
+            )
+        }
+    }
+
+    private func presentServerImport(
+        _ candidates: [ServerImportCandidate],
+        source: ServerImportSource
+    ) {
+        serverImport = ServerImportPresentation(source: source, candidates: candidates)
+    }
+
+    private func importSelectedServers() {
+        guard let presentation = serverImport else { return }
+        let selected = presentation.selectedCandidates
+        serverImport?.isImporting = true
+        Task {
+            _ = await model.importServers(selected)
+            serverImport = nil
+        }
+    }
+
+    private func handleImportServers(_ source: ServerImportSource) {
+        switch source {
+        case .sshConfig:
+#if os(macOS)
+            beginDefaultSSHConfigImport()
+#else
+            isSSHConfigImporterPresented = true
+#endif
+        case .tailscale:
+            beginTailscaleImport()
+        }
+    }
+
+    private func handleSSHConfigImportFile(_ result: Result<[URL], Error>) {
+        do {
+            guard let url = try result.get().first else { return }
+            let hasScopedAccess = url.startAccessingSecurityScopedResource()
+            defer {
+                if hasScopedAccess {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
+            let candidates = try ServerImportLoader.sshConfigCandidates(
+                from: url,
+                existingServers: model.library.servers
+            )
+            presentServerImport(candidates, source: .sshConfig)
+        } catch {
+            serverImportError = error.localizedDescription
+        }
+    }
+
+#if os(macOS)
+    private func beginDefaultSSHConfigImport() {
+        do {
+            let candidates = try ServerImportLoader.defaultSSHConfigCandidates(
+                existingServers: model.library.servers
+            )
+            presentServerImport(candidates, source: .sshConfig)
+        } catch {
+            serverImportError = error.localizedDescription
+        }
+    }
+#endif
+
+    private func beginTailscaleImport() {
+#if os(macOS)
+        let servers = model.library.servers
+        Task {
+            do {
+                let candidates = try await Task.detached(priority: .userInitiated) {
+                    try ServerImportLoader.tailscaleCandidates(existingServers: servers)
+                }.value
+                presentServerImport(candidates, source: .tailscale)
+            } catch {
+                serverImportError = error.localizedDescription
+            }
+        }
+#endif
+    }
+
+    private var serverImportErrorIsPresented: Binding<Bool> {
+        Binding(
+            get: { serverImportError != nil },
+            set: { isPresented in
+                if !isPresented {
+                    serverImportError = nil
+                }
+            }
+        )
     }
 
     private var connectionSetupSheetIsPresented: Binding<Bool> {
@@ -547,6 +667,7 @@ private struct RemuxWorkspaceShell: View {
                 terminalSettings: terminalSettingsBinding,
                 presentedServerID: $presentedServerID,
                 onAddServer: model.beginNewServer,
+                onImportServers: handleImportServers,
                 onAddWorkspace: { serverID, showsServerSummary in
                     connectionSetupSheetShowsServerSummary = showsServerSummary
                     _ = model.beginNewWorkspace(for: serverID)
@@ -591,6 +712,20 @@ private struct RemuxWorkspaceShell: View {
             )
         }
         .zIndex(2)
+        .fileImporter(
+            isPresented: $isSSHConfigImporterPresented,
+            allowedContentTypes: [.item],
+            allowsMultipleSelection: false,
+            onCompletion: handleSSHConfigImportFile
+        )
+        .alert(
+            "Couldn’t Import Servers",
+            isPresented: serverImportErrorIsPresented
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(serverImportError ?? "")
+        }
     }
 
     private var terminalSettingsBinding: Binding<TerminalSettings> {
@@ -886,6 +1021,7 @@ private struct ConnectionLibraryView: View {
     @Binding var terminalSettings: TerminalSettings
     @Binding var presentedServerID: SavedServer.ID?
     let onAddServer: () -> Void
+    let onImportServers: (ServerImportSource) -> Void
     let onAddWorkspace: (SavedServer.ID, Bool) -> Void
     let onEditServer: (SavedServer.ID) -> Void
     let onEditWorkspace: (SavedServer.ID, SavedWorkspace.ID) -> Void
@@ -911,7 +1047,7 @@ private struct ConnectionLibraryView: View {
 
         Group {
             if snapshot.servers.isEmpty {
-                LibraryEmptyState(onAddServer: onAddServer)
+                LibraryEmptyState(onAddServer: onAddServer, onImportServers: onImportServers)
             } else {
                 List {
                     activeSessionsSection
@@ -945,6 +1081,12 @@ private struct ConnectionLibraryView: View {
             }
 
             ToolbarItemGroup(placement: .topBarTrailing) {
+                LibraryImportControl(onImport: onImportServers) {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .accessibilityLabel("Import Servers")
+                .accessibilityIdentifier("library.import-servers")
+
                 Button(action: onAddServer) {
                     Image(systemName: "plus")
                 }
@@ -1763,6 +1905,7 @@ struct DisclosureRowLabel: View {
 
 private struct LibraryEmptyState: View {
     let onAddServer: () -> Void
+    let onImportServers: (ServerImportSource) -> Void
 
     var body: some View {
         ContentUnavailableView {
@@ -1774,7 +1917,14 @@ private struct LibraryEmptyState: View {
         } description: {
             Text("Add an SSH server to start using tmux sessions from this phone.")
         } actions: {
-            LibraryEmptyAddServerButton(action: onAddServer)
+            VStack(spacing: 12) {
+                LibraryEmptyAddServerButton(action: onAddServer)
+                LibraryImportControl(onImport: onImportServers) {
+                    Label("Import Servers", systemImage: "square.and.arrow.down")
+                }
+                .buttonStyle(.bordered)
+                .accessibilityIdentifier("library.empty.import-servers")
+            }
         }
         .tint(LibraryHomePalette.controlAccent)
         .padding(.horizontal, 40)

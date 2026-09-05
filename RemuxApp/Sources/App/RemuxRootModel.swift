@@ -1600,6 +1600,28 @@ final class RemuxRootModel: ObservableObject {
         }
     }
 
+    /// Persists imported servers and their identities through the profile
+    /// repository, then reloads the library. Imported identities carry no
+    /// stored credential; the user completes authentication in server setup,
+    /// which verifies before saving. Returns the number of servers imported.
+    @discardableResult
+    func importServers(_ candidates: [ServerImportCandidate]) async -> Int {
+        let profiles = ServerImportPlanner.makeProfiles(for: candidates)
+        guard !profiles.isEmpty else { return 0 }
+        do {
+            for profile in profiles {
+                try await dependencies.profileRepository.saveIdentity(profile.identity)
+                try await dependencies.profileRepository.saveServer(profile.server)
+            }
+            library = try await dependencies.profileRepository.loadSnapshot()
+            scheduleLibrarySSHPrewarm(snapshot: library)
+            return profiles.count
+        } catch {
+            transitionToFailed(error)
+            return 0
+        }
+    }
+
     func updateTerminalSettings(_ mutation: (inout TerminalSettings) -> Void) async {
         do {
             var updated = terminalSettings
