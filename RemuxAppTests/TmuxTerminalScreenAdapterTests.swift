@@ -573,4 +573,224 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
 
         await session.shutdown()
     }
+
+    func testResumableAgentAppearsOnlyAfterAgentExitsToShell() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        func pushTopology(command: String) {
+            session.handleTopology(TmuxSessionController.TopologySnapshot(
+                sessionName: "agent-test",
+                windows: [window(id: 1, active: true, paneID: 10, name: "work")],
+                panes: [pane(id: 10, windowID: 1, currentCommand: command)],
+                activeWindowID: 1
+            ))
+        }
+
+        func focusedViewportPane() -> GhosttyTerminalViewportPresentationProjection.Pane? {
+            adapter.terminalScreenPresentationProjection.viewport.panes
+                .first(where: \.isFocused)
+        }
+
+        pushTopology(command: "claude")
+        XCTAssertNil(
+            focusedViewportPane()?.resumableAgent,
+            "a running agent is not resumable"
+        )
+
+        pushTopology(command: "zsh")
+        XCTAssertEqual(
+            focusedViewportPane()?.resumableAgent,
+            .claudeCode,
+            "the exited agent stays resumable from the shell"
+        )
+
+        pushTopology(command: "codex")
+        XCTAssertNil(
+            focusedViewportPane()?.resumableAgent,
+            "running a different agent supersedes the remembered one"
+        )
+
+        pushTopology(command: "zsh")
+        XCTAssertEqual(
+            focusedViewportPane()?.resumableAgent,
+            .codex,
+            "the most recent agent wins the resume slot"
+        )
+
+        await session.shutdown()
+    }
+
+    func testResumableAgentDoesNotLeakAcrossRemovedPanes() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "work")],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "claude")],
+            activeWindowID: 1
+        ))
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 11, name: "work")],
+            panes: [pane(id: 11, windowID: 1, currentCommand: "zsh")],
+            activeWindowID: 1
+        ))
+
+        XCTAssertNil(
+            adapter.terminalScreenPresentationProjection.viewport.panes
+                .first(where: \.isFocused)?.resumableAgent,
+            "a fresh pane must not inherit the removed pane's agent"
+        )
+
+        await session.shutdown()
+    }
+
+    func testPaneSelectionSheetCarriesResumableAgent() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "work")],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "kimi")],
+            activeWindowID: 1
+        ))
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "work")],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "zsh")],
+            activeWindowID: 1
+        ))
+
+        let topLevelID = try XCTUnwrap(
+            adapter.windowSelectionSheetRenderProjection().selectedWindowID
+        )
+        let projection = adapter.paneSelectionSheetRenderProjection(topLevelID: topLevelID)
+        XCTAssertEqual(projection.panes.map(\.resumableAgent), [.kimiCode])
+
+        await session.shutdown()
+    }
+
+    func testAgentTopLevelIDsReportOnlyWindowsWithAgents() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "shell"),
+                window(id: 2, active: false, paneID: 20, name: "agent"),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "zsh"),
+                pane(id: 20, windowID: 2, currentCommand: "claude"),
+            ],
+            activeWindowID: 1
+        ))
+
+        let windowIDs = adapter.windowSelectionSheetRenderProjection().windows.map(\.id)
+        XCTAssertEqual(adapter.tmuxAgentTopLevelIDs, [windowIDs[1]])
+        XCTAssertEqual(adapter.sessionAgent, .claudeCode)
+
+        await session.shutdown()
+    }
+
+    func testSessionAgentIsNilWithoutAgentPanes() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "shell")],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "zsh")],
+            activeWindowID: 1
+        ))
+
+        XCTAssertTrue(adapter.tmuxAgentTopLevelIDs.isEmpty)
+        XCTAssertNil(adapter.sessionAgent)
+
+        await session.shutdown()
+    }
+
+    func testFocusNextAgentTopLevelJumpsToTheNextAgentWindow() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "shell"),
+                window(id: 2, active: false, paneID: 20, name: "agent"),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "zsh"),
+                pane(id: 20, windowID: 2, currentCommand: "codex"),
+            ],
+            activeWindowID: 1
+        ))
+
+        XCTAssertEqual(adapter.focusNextTmuxAgentTopLevel(), .queued)
+
+        await session.shutdown()
+    }
+
+    func testFocusNextAgentTopLevelMissesWithoutAgentWindows() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-test",
+            windows: [window(id: 1, active: true, paneID: 10, name: "shell")],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "zsh")],
+            activeWindowID: 1
+        ))
+
+        XCTAssertEqual(adapter.focusNextTmuxAgentTopLevel(), .missingTarget(.agentWindow))
+
+        await session.shutdown()
+    }
 }

@@ -422,6 +422,32 @@ final class SessionSwitcherProjectionTests: XCTestCase {
         )
     }
 
+    func testProjectionAttachesDetectedAgentsToActiveSessions() {
+        let server = makeServer(name: "Production")
+        let withAgent = makeWorkspace(
+            server: server,
+            name: "agents",
+            lastOpenedAt: Date(timeIntervalSince1970: 200)
+        )
+        let withoutAgent = makeWorkspace(
+            server: server,
+            name: "shells",
+            lastOpenedAt: Date(timeIntervalSince1970: 100)
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [server], workspaces: [withAgent, withoutAgent]),
+            activeSessions: [
+                makeSession(server: server, workspace: withAgent),
+                makeSession(server: server, workspace: withoutAgent),
+            ],
+            selectedSessionID: nil,
+            agentsBySessionID: [withAgent.id: .claudeCode]
+        )
+
+        XCTAssertEqual(projection.activeSessions.map(\.agent), [.claudeCode, nil])
+    }
+
     private func snapshot(
         servers: [SavedServer],
         workspaces: [SavedWorkspace]

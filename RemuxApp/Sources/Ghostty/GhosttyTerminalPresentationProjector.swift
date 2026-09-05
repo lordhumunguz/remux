@@ -416,6 +416,7 @@ struct GhosttyTerminalViewportPresentationProjection: Equatable {
         let tmuxCurrentCommand: String
         let tmuxCurrentPath: String
         let agentInfo: TmuxPaneAgentInfo
+        var resumableAgent: AgentIdentity? = nil
     }
 
     static let empty = GhosttyTerminalViewportPresentationProjection(
@@ -494,6 +495,7 @@ struct GhosttyPaneSelectionSheetRenderProjection: Equatable, Sendable {
         let tmuxCurrentCommand: String
         let tmuxCurrentPath: String
         let agentInfo: TmuxPaneAgentInfo
+        var resumableAgent: AgentIdentity? = nil
     }
 
     let panes: [Pane]
@@ -741,7 +743,8 @@ enum GhosttyTerminalPresentationProjector {
                 frame: viewportPanesByID[paneID]?.normalFrame,
                 tmuxCurrentCommand: viewportPanesByID[paneID]?.tmuxCurrentCommand ?? "",
                 tmuxCurrentPath: viewportPanesByID[paneID]?.tmuxCurrentPath ?? "",
-                agentInfo: viewportPanesByID[paneID]?.agentInfo ?? .idle
+                agentInfo: viewportPanesByID[paneID]?.agentInfo ?? .idle,
+                resumableAgent: viewportPanesByID[paneID]?.resumableAgent
             )
         }
 

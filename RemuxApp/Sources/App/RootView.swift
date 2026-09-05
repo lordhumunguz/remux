@@ -166,7 +166,8 @@ private struct RemuxWorkspaceShell: View {
                     activeSessions: model.activeSessions,
                     discoveryStates: model.tmuxSessionDiscoveryStates,
                     selectedSessionID: selectedTerminalID,
-                    projectContexts: model.sessionProjectContexts()
+                    projectContexts: model.sessionProjectContexts(),
+                    agentsBySessionID: activeSessionAgents
                 ),
                 servers: model.library.servers,
                 currentServerID: selectedActiveSession?.target.server.id,
@@ -446,6 +447,16 @@ private struct RemuxWorkspaceShell: View {
     private var selectedActiveSession: ActiveTerminalSession? {
         guard let selectedTerminalID else { return nil }
         return model.activeSessions.first { $0.id == selectedTerminalID }
+    }
+
+    /// Currently detected coding agent per active session, for switcher
+    /// badges. Best-effort: reflects each session's latest pane metadata.
+    private var activeSessionAgents: [SavedWorkspace.ID: AgentIdentity] {
+        model.activeTerminalScreenEntries.reduce(into: [:]) { result, entry in
+            if let agent = entry.model.terminalScreenAdapter.sessionAgent {
+                result[entry.id] = agent
+            }
+        }
     }
 
     private var activeTerminalLayer: some View {

@@ -143,6 +143,15 @@ protocol GhosttyTmuxActionModeling: ObservableObject {
         _ direction: GhosttyRuntimeSelectionDirection
     ) -> GhosttyTmuxModelActionOutcome
 
+    /// Windows (top-level surface IDs) with at least one pane currently
+    /// running a detected coding agent, in window order.
+    var tmuxAgentTopLevelIDs: [UUID] { get }
+
+    /// Best-effort "jump to agent window": cycles focus to the next window
+    /// whose panes run a detected agent.
+    @discardableResult
+    func focusNextTmuxAgentTopLevel() -> GhosttyTmuxModelActionOutcome
+
     @discardableResult
     func createTmuxWindow() -> GhosttyTmuxModelActionOutcome
 

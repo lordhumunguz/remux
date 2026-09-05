@@ -15,6 +15,8 @@ struct ActiveSessionSwitcherItem: Identifiable, Equatable {
     var distinguishingTitle: String {
         projectContext?.worktreeDetail ?? sessionName
     }
+
+    var agent: AgentIdentity? = nil
 }
 
 struct RemoteTmuxSessionIdentity: Hashable {
@@ -76,7 +78,8 @@ struct SessionSwitcherProjection: Equatable {
         activeSessions: [ActiveTerminalSession],
         discoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState] = [:],
         selectedSessionID: SavedWorkspace.ID?,
-        projectContexts: [SavedWorkspace.ID: RemuxProjectGrouping.Context] = [:]
+        projectContexts: [SavedWorkspace.ID: RemuxProjectGrouping.Context] = [:],
+        agentsBySessionID: [SavedWorkspace.ID: AgentIdentity] = [:]
     ) {
         self.activeSessions = RemuxActiveSessionCollection
             .sortedForDisplayByAgentState(activeSessions)
@@ -88,7 +91,8 @@ struct SessionSwitcherProjection: Equatable {
                     runtimeState: session.runtimeState,
                     agentState: session.agentState,
                     isSelected: session.id == selectedSessionID,
-                    projectContext: projectContexts[session.id]
+                    projectContext: projectContexts[session.id],
+                    agent: agentsBySessionID[session.id]
                 )
             }
 
@@ -640,11 +644,20 @@ private struct ActiveSessionSwitcherRow: View {
                 .frame(width: 28, height: 32)
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(TerminalSelectionSheetPalette.primary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
+                HStack(spacing: 6) {
+                    Text(title)
+                        .font(.headline)
+                        .foregroundStyle(TerminalSelectionSheetPalette.primary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+
+                    if let agent = session.agent {
+                        Text(agent.glyph)
+                            .font(.callout.weight(.semibold))
+                            .foregroundStyle(agent.accent)
+                            .accessibilityHidden(true)
+                    }
+                }
 
                 HStack(spacing: 6) {
                     Text(session.serverName)
@@ -687,12 +700,13 @@ private struct ActiveSessionSwitcherRow: View {
     private var accessibilityLabel: String {
         let status = TerminalRuntimeStatusPresentation.projection(for: session.runtimeState).label
         let current = session.isSelected ? ", current session" : ""
-        let agent = TmuxAgentStateBadge.accessibilityLabel(for: session.agentState)
+        let agentState = TmuxAgentStateBadge.accessibilityLabel(for: session.agentState)
             .map { ", \($0)" } ?? ""
+        let agent = session.agent.map { ", \($0.displayName)" } ?? ""
         if title != session.sessionName {
-            return "\(title), \(session.sessionName), \(session.serverName), \(status)\(agent)\(current)"
+            return "\(title), \(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(current)"
         }
-        return "\(session.sessionName), \(session.serverName), \(status)\(agent)\(current)"
+        return "\(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(current)"
     }
 }
 

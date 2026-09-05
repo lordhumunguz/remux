@@ -8,5 +8,6 @@ enum GhosttyTmuxActionMissingTarget: Equatable, Sendable {
     case windowPane(UUID)
     case selectedWindow
     case adjacentWindow
+    case agentWindow
 }
 
