@@ -239,6 +239,47 @@ final class RemuxRootModelTests: XCTestCase {
         XCTAssertEqual(probedSessions, ["main"])
     }
 
+    func testConcurrentConnectsEachRunTheSeatProbe() async throws {
+        let pair = makePasswordBackedServer()
+        let first = SavedWorkspace(serverID: pair.server.id, sessionName: "one")
+        let second = SavedWorkspace(serverID: pair.server.id, sessionName: "two")
+        let prober = SuspendingTmuxSeatProber()
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [first, second],
+            identities: [pair.identity],
+            tmuxSeatProber: { target, _, _ in
+                await prober.probe(target)
+            }
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load()
+
+        async let firstConnect: Void = harness.model.connect(to: first.id)
+        await prober.waitForSuspendedCalls(1)
+
+        async let secondConnect: Void = harness.model.connect(to: second.id)
+        try? await Task.sleep(for: .milliseconds(100))
+        let callsDuringProbe = await prober.suspendedCallCount()
+        XCTAssertEqual(
+            callsDuringProbe,
+            1,
+            "a connect started mid-probe must queue, not attach without an occupancy check"
+        )
+
+        await prober.resumeOne(occupied: false)
+        await prober.waitForSuspendedCalls(2)
+        await prober.resumeOne(occupied: false)
+
+        await firstConnect
+        await secondConnect
+
+        let probedSessions = await prober.sessionNames()
+        XCTAssertEqual(Set(probedSessions), Set(["one", "two"]))
+        XCTAssertEqual(Set(harness.model.activeSessions.map(\.id)), Set([first.id, second.id]))
+        XCTAssertNil(harness.model.pendingSeatTakeover)
+    }
+
     func testInteractiveConnectionCancelsDiscoveryForItsServer() async throws {
         let pair = makePasswordBackedServer()
         let workspace = SavedWorkspace(serverID: pair.server.id, sessionName: "main")
@@ -4113,6 +4154,49 @@ private actor RecordingTmuxSeatProber {
     func probe(_ target: TmuxConnectionTarget) -> Bool {
         recordedSessionNames.append(target.workspace.sessionName)
         return occupied
+    }
+
+    func sessionNames() -> [String] {
+        recordedSessionNames
+    }
+}
+
+/// Holds each probe open until the test resumes it, so concurrent connects
+/// can be observed while an occupancy check is still in flight.
+private actor SuspendingTmuxSeatProber {
+    private var continuations: [CheckedContinuation<Bool, Never>] = []
+    private var waiters: [CheckedContinuation<Void, Never>] = []
+    private var calls = 0
+    private var recordedSessionNames: [String] = []
+
+    func probe(_ target: TmuxConnectionTarget) async -> Bool {
+        calls += 1
+        recordedSessionNames.append(target.workspace.sessionName)
+        let waiters = waiters
+        self.waiters.removeAll()
+        for waiter in waiters {
+            waiter.resume()
+        }
+        return await withCheckedContinuation { continuation in
+            continuations.append(continuation)
+        }
+    }
+
+    func waitForSuspendedCalls(_ count: Int) async {
+        while calls < count {
+            await withCheckedContinuation { continuation in
+                waiters.append(continuation)
+            }
+        }
+    }
+
+    func resumeOne(occupied: Bool) {
+        guard !continuations.isEmpty else { return }
+        continuations.removeFirst().resume(returning: occupied)
+    }
+
+    func suspendedCallCount() -> Int {
+        calls
     }
 
     func sessionNames() -> [String] {

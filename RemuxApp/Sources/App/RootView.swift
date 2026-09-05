@@ -164,6 +164,7 @@ private struct RemuxWorkspaceShell: View {
                 get: { model.pendingSeatTakeover },
                 set: { _ in }
             ),
+            isActive: !isSessionSwitcherPresented,
             onConfirm: { model.confirmSeatTakeover($0) },
             onCancel: { model.cancelSeatTakeover() }
         )
@@ -227,6 +228,7 @@ private struct RemuxWorkspaceShell: View {
                     get: { model.pendingSeatTakeover },
                     set: { _ in }
                 ),
+                isActive: true,
                 onConfirm: { model.confirmSeatTakeover($0) },
                 onCancel: { model.cancelSeatTakeover() }
             )
@@ -783,12 +785,14 @@ private extension View {
 
     func seatTakeoverAlert(
         request: Binding<RemuxRootModel.SeatTakeoverRequest?>,
+        isActive: Bool,
         onConfirm: @escaping (RemuxRootModel.SeatTakeoverRequest) -> Void,
         onCancel: @escaping () -> Void
     ) -> some View {
         modifier(
             SeatTakeoverAlertModifier(
                 request: request,
+                isActive: isActive,
                 onConfirm: onConfirm,
                 onCancel: onCancel
             )
@@ -798,6 +802,7 @@ private extension View {
 
 private struct SeatTakeoverAlertModifier: ViewModifier {
     @Binding var request: RemuxRootModel.SeatTakeoverRequest?
+    let isActive: Bool
     let onConfirm: (RemuxRootModel.SeatTakeoverRequest) -> Void
     let onCancel: () -> Void
 
@@ -825,7 +830,7 @@ private struct SeatTakeoverAlertModifier: ViewModifier {
 
     private var isPresented: Binding<Bool> {
         Binding(
-            get: { request != nil },
+            get: { isActive && request != nil },
             // Dismissal only happens through the two actions, which clear
             // the request themselves; this keeps confirm/cancel ordering out
             // of the alert's own dismissal path.

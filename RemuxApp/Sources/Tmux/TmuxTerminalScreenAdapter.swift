@@ -430,7 +430,9 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             // Pre-connect; the first connect is imminent.
             return .starting
         case .detached(.some(let reason)):
-            let mapped = reason.terminalDisconnectReason
+            let mapped = reason.terminalDisconnectReason(
+                seatContractDetected: session.serverSeatContractDetected
+            )
             return .failed(message: mapped.message, reason: mapped)
         case .closed(let reason):
             let mapped = reason.terminalDisconnectReason
@@ -1182,10 +1184,15 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
 // MARK: - Shared reason mapping
 
 extension TmuxSessionController.DetachReason {
-    var terminalDisconnectReason: TerminalDisconnectReason {
+    func terminalDisconnectReason(
+        seatContractDetected: Bool
+    ) -> TerminalDisconnectReason {
         switch self {
         case .serverExited(let message):
-            switch TmuxSeatContract.classify(exitDetail: message) {
+            switch TmuxSeatContract.classify(
+                exitDetail: message,
+                seatContractDetected: seatContractDetected
+            ) {
             case .seatTaken:
                 TerminalDisconnectReason(
                     kind: .seatTaken,

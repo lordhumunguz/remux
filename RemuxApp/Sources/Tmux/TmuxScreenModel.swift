@@ -411,7 +411,9 @@ final class TmuxScreenModel: ObservableObject {
                 return .connecting
             }
             if let reason {
-                return .disconnected(reason.terminalDisconnectReason)
+                return .disconnected(reason.terminalDisconnectReason(
+                    seatContractDetected: session?.serverSeatContractDetected ?? false
+                ))
             }
             return .disconnected(
                 session?.transportFailure ?? TerminalDisconnectReason(

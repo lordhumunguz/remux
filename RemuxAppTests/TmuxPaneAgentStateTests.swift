@@ -114,6 +114,11 @@ final class TmuxPaneAgentStateTests: XCTestCase {
         let blocked: [TmuxPaneID: TmuxPaneAgentInfo] = [7: TmuxPaneAgentInfo(state: .blocked)]
         let unblocked: [TmuxPaneID: TmuxPaneAgentInfo] = [7: .idle]
 
+        XCTAssertEqual(
+            tracker.update(with: unblocked),
+            [],
+            "the first snapshot only seeds the baseline"
+        )
         XCTAssertEqual(tracker.update(with: blocked), [7])
         XCTAssertEqual(
             tracker.update(with: blocked),
@@ -131,6 +136,68 @@ final class TmuxPaneAgentStateTests: XCTestCase {
             [],
             "a removed pane ends its episode silently"
         )
+    }
+
+    func testBlockedTrackerSeedsAlreadyBlockedPanesWithoutAlerting() {
+        var tracker = TmuxAgentBlockedTracker()
+        let blocked: [TmuxPaneID: TmuxPaneAgentInfo] = [
+            7: TmuxPaneAgentInfo(state: .blocked),
+            8: TmuxPaneAgentInfo(state: .blocked),
+        ]
+
+        XCTAssertEqual(
+            tracker.update(with: blocked),
+            [],
+            "attaching to a session with blocked panes is not an alert burst"
+        )
+        XCTAssertEqual(
+            tracker.update(with: blocked.merging([9: TmuxPaneAgentInfo(state: .blocked)]) {
+                _, new in new
+            }),
+            [9],
+            "only panes blocked after the baseline alert"
+        )
+
+        tracker.reset()
+        XCTAssertEqual(
+            tracker.update(with: blocked),
+            [],
+            "a reset re-arms the silent baseline"
+        )
+    }
+
+    func testRepollGateFloorsEventPollsButNotTheTimer() {
+        var gate = TmuxAgentMetadataRepollGate(minimumInterval: 2)
+
+        XCTAssertTrue(gate.admit(at: 10), "the first event poll always fires")
+        XCTAssertFalse(gate.admit(at: 11.5), "event polls inside the floor are dropped")
+        XCTAssertTrue(gate.admit(at: 12), "the floor boundary admits again")
+
+        gate.recordPoll(at: 12.5)
+        XCTAssertFalse(
+            gate.admit(at: 13),
+            "a timer poll refreshes the floor for event polls"
+        )
+        XCTAssertTrue(gate.admit(at: 14.5))
+
+        gate.reset()
+        XCTAssertTrue(gate.admit(at: 14.6), "a reset clears the floor")
+    }
+
+    func testAgentBlockedNotificationIdentifierScopesPaneToSession() {
+        let identifier = TmuxAgentStateNotifier.identifier(sessionName: "main", paneID: 7)
+
+        XCTAssertNotEqual(
+            identifier,
+            TmuxAgentStateNotifier.identifier(sessionName: "ops", paneID: 7),
+            "pane IDs are per-server; the session keeps banners distinct"
+        )
+        XCTAssertNotEqual(
+            identifier,
+            TmuxAgentStateNotifier.identifier(sessionName: "main", paneID: 8)
+        )
+        XCTAssertTrue(identifier.contains("main"))
+        XCTAssertTrue(identifier.hasPrefix("remux.agent-blocked."))
     }
 
     func testBlockedAlertPolicy() {

@@ -209,7 +209,10 @@ final class TmuxSessionController: @unchecked Sendable {
             @Sendable (Result<String, PaneCurrentDirectoryError>) -> Void
         )
         case paneAgentMetadataPoll
-        case responsiveAccordion(@Sendable (Bool) -> Void)
+        case serverConventionProbe(
+            parse: @Sendable (String) -> Bool,
+            completion: @Sendable (Bool) -> Void
+        )
         case trackedInput(@Sendable (Bool) -> Void)
     }
 
@@ -314,7 +317,7 @@ final class TmuxSessionController: @unchecked Sendable {
         queue.async { [self] in
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
-            failOutstandingResponsiveAccordionQueries()
+            failOutstandingServerConventionProbes()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -335,7 +338,7 @@ final class TmuxSessionController: @unchecked Sendable {
         queue.async { [self] in
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
-            failOutstandingResponsiveAccordionQueries()
+            failOutstandingServerConventionProbes()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -354,11 +357,11 @@ final class TmuxSessionController: @unchecked Sendable {
             shuttingDown = true
             outboundSink = nil
             let directoryQueries = outstandingPaneDirectoryQueries()
-            let accordionQueries = outstandingResponsiveAccordionQueries()
+            let conventionProbes = outstandingServerConventionProbes()
             let trackedInputCompletions = outstandingTrackedInputCompletions()
             requestsByToken.removeAll()
             directoryQueries.forEach { $0(.failure(.sessionUnavailable)) }
-            accordionQueries.forEach { $0(false) }
+            conventionProbes.forEach { $0(false) }
             trackedInputCompletions.forEach { $0(false) }
             deferredNavigationIntent = nil
             deferredWindowZoomIntent = nil
@@ -437,7 +440,7 @@ final class TmuxSessionController: @unchecked Sendable {
         switch action.tag {
         case GHOSTTY_TMUX_ACTION_EXIT:
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
-            failOutstandingResponsiveAccordionQueries()
+            failOutstandingServerConventionProbes()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -576,8 +579,8 @@ final class TmuxSessionController: @unchecked Sendable {
         case .paneAgentMetadataPoll:
             handlePaneAgentMetadataPollCompletion(completion)
             return
-        case .responsiveAccordion(let completionHandler):
-            completionHandler(responsiveAccordionResult(for: completion))
+        case .serverConventionProbe(let parse, let completionHandler):
+            completionHandler(serverConventionProbeResult(for: completion, parse: parse))
             return
         case .action(let request, let topologyRevisionAtSubmission, let onSuccess):
             handleActionCompletion(
@@ -983,9 +986,30 @@ final class TmuxSessionController: @unchecked Sendable {
     /// without that convention answer with an error block or an empty value;
     /// both resolve to `false` so Remux keeps its own zoom policy.
     func responsiveAccordionEnabled() async -> Bool {
+        await probeServerConvention(
+            command: TmuxResponsiveAccordion.showOptionCommand,
+            parse: { TmuxResponsiveAccordion.isEnabled(showOptionOutput: $0) }
+        )
+    }
+
+    /// One-shot probe for the single-seat convention: dotfiles that enforce
+    /// one attached viewer hook `client-attached` to detach the previous
+    /// client. Servers without the hook (or a failed query) resolve to
+    /// `false`, which keeps bare `%exit` lines classified as real exits.
+    func seatContractDetected() async -> Bool {
+        await probeServerConvention(
+            command: TmuxSeatContract.showHooksCommand,
+            parse: { TmuxSeatContract.detectsSeatContract(showHooksOutput: $0) }
+        )
+    }
+
+    private func probeServerConvention(
+        command: String,
+        parse: @escaping @Sendable (String) -> Bool
+    ) async -> Bool {
         await withCheckedContinuation { continuation in
             queue.async { [self] in
-                submitResponsiveAccordionQueryOnWriter {
+                submitServerConventionProbeOnWriter(command: command, parse: parse) {
                     continuation.resume(returning: $0)
                 }
             }
@@ -1512,7 +1536,9 @@ final class TmuxSessionController: @unchecked Sendable {
         _ = drainOutbound()
     }
 
-    private func submitResponsiveAccordionQueryOnWriter(
+    private func submitServerConventionProbeOnWriter(
+        command: String,
+        parse: @escaping @Sendable (String) -> Bool,
         completion: @escaping @Sendable (Bool) -> Void
     ) {
         preconditionOnWriterQueue()
@@ -1520,10 +1546,7 @@ final class TmuxSessionController: @unchecked Sendable {
             completion(false)
             return
         }
-        let (result, token) = enqueueCommandTokenOnWriter(
-            TmuxResponsiveAccordion.showOptionCommand,
-            client: client
-        )
+        let (result, token) = enqueueCommandTokenOnWriter(command, client: client)
         guard result == GHOSTTY_TMUX_RESULT_OK else {
             completion(false)
             if result == GHOSTTY_TMUX_RESULT_CLIENT_FAILED
@@ -1532,7 +1555,10 @@ final class TmuxSessionController: @unchecked Sendable {
             }
             return
         }
-        requestsByToken[token] = .responsiveAccordion(completion)
+        requestsByToken[token] = .serverConventionProbe(
+            parse: parse,
+            completion: completion
+        )
         _ = drainOutbound()
     }
 
@@ -1639,7 +1665,7 @@ final class TmuxSessionController: @unchecked Sendable {
         preconditionOnWriterQueue()
         guard !shuttingDown else { return }
         failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
-        failOutstandingResponsiveAccordionQueries()
+        failOutstandingServerConventionProbes()
         failOutstandingTrackedInput()
         forgetOutstandingPaneAgentMetadataPolls()
         deferredNavigationIntent = nil
@@ -1706,13 +1732,12 @@ final class TmuxSessionController: @unchecked Sendable {
         }
     }
 
-    private func responsiveAccordionResult(
-        for completion: ghostty_tmux_command_completion_s
+    private func serverConventionProbeResult(
+        for completion: ghostty_tmux_command_completion_s,
+        parse: @Sendable (String) -> Bool
     ) -> Bool {
         guard completion.status == GHOSTTY_TMUX_COMMAND_SUCCESS else { return false }
-        return TmuxResponsiveAccordion.isEnabled(
-            showOptionOutput: decodeTmuxString(completion.body)
-        )
+        return parse(decodeTmuxString(completion.body))
     }
 
     private func outstandingPaneDirectoryQueries() -> [
@@ -1736,18 +1761,18 @@ final class TmuxSessionController: @unchecked Sendable {
         completions.forEach { $0(.failure(error)) }
     }
 
-    private func outstandingResponsiveAccordionQueries() -> [@Sendable (Bool) -> Void] {
+    private func outstandingServerConventionProbes() -> [@Sendable (Bool) -> Void] {
         requestsByToken.values.compactMap {
-            guard case .responsiveAccordion(let completion) = $0 else { return nil }
+            guard case .serverConventionProbe(_, let completion) = $0 else { return nil }
             return completion
         }
     }
 
-    private func failOutstandingResponsiveAccordionQueries() {
+    private func failOutstandingServerConventionProbes() {
         preconditionOnWriterQueue()
-        let completions = outstandingResponsiveAccordionQueries()
+        let completions = outstandingServerConventionProbes()
         requestsByToken = requestsByToken.filter {
-            guard case .responsiveAccordion = $0.value else { return true }
+            guard case .serverConventionProbe = $0.value else { return true }
             return false
         }
         completions.forEach { $0(false) }

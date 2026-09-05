@@ -128,8 +128,11 @@ enum TmuxPaneAgentMetadata {
 /// Diffs consecutive agent-metadata snapshots so a blocked pane raises
 /// exactly one alert per blocked episode: an episode ends when the pane
 /// leaves the blocked state (or disappears), and a later block is a new one.
+/// The first snapshot after a reset only establishes the baseline, so
+/// attaching to a session with panes already blocked is not an alert burst.
 struct TmuxAgentBlockedTracker: Equatable, Sendable {
     private(set) var blockedPaneIDs: Set<TmuxPaneID> = []
+    private var hasBaseline = false
 
     /// Records the latest snapshot and returns the panes that newly entered
     /// the blocked state, in stable id order.
@@ -137,13 +140,49 @@ struct TmuxAgentBlockedTracker: Equatable, Sendable {
         with infos: [TmuxPaneID: TmuxPaneAgentInfo]
     ) -> [TmuxPaneID] {
         let nowBlocked = Set(infos.lazy.filter { $0.value.state == .blocked }.map { $0.key })
-        let newlyBlocked = nowBlocked.subtracting(blockedPaneIDs).sorted()
-        blockedPaneIDs = nowBlocked
-        return newlyBlocked
+        defer {
+            blockedPaneIDs = nowBlocked
+            hasBaseline = true
+        }
+        guard hasBaseline else { return [] }
+        return nowBlocked.subtracting(blockedPaneIDs).sorted()
     }
 
     mutating func reset() {
         blockedPaneIDs.removeAll()
+        hasBaseline = false
+    }
+}
+
+/// Rate floor for event-triggered agent-metadata repolls (topology churn,
+/// foregrounding): they supplement the repeating poll but must not outpace
+/// it. Timer-driven polls bypass admission yet still refresh the floor, so
+/// an event right after a timer poll does not duplicate fresh data.
+struct TmuxAgentMetadataRepollGate: Equatable, Sendable {
+    private(set) var lastPollUptime: TimeInterval?
+    let minimumInterval: TimeInterval
+
+    init(minimumInterval: TimeInterval) {
+        self.minimumInterval = minimumInterval
+    }
+
+    /// Admits an event-triggered poll once the floor has elapsed and records
+    /// it; returns false while still inside the floor.
+    mutating func admit(at uptime: TimeInterval) -> Bool {
+        if let lastPollUptime, uptime - lastPollUptime < minimumInterval {
+            return false
+        }
+        lastPollUptime = uptime
+        return true
+    }
+
+    /// Records a poll that fired without admission (the repeating timer).
+    mutating func recordPoll(at uptime: TimeInterval) {
+        lastPollUptime = uptime
+    }
+
+    mutating func reset() {
+        lastPollUptime = nil
     }
 }
 

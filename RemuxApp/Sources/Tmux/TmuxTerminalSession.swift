@@ -17,6 +17,10 @@ final class TmuxTerminalSession: ObservableObject {
     /// Cached result of the one-per-attachment server option probe; `false`
     /// both when the option is off and when the query could not run.
     @Published private(set) var serverResponsiveAccordionEnabled = false
+    /// Cached result of the one-per-attachment single-seat hook probe;
+    /// `false` both when the server has no such hook and when the query
+    /// could not run.
+    private(set) var serverSeatContractDetected = false
 
     private let app: ghostty_app_t
     private(set) var controller: TmuxSessionController!
@@ -46,6 +50,9 @@ final class TmuxTerminalSession: ObservableObject {
     private var isAppActive = true
     private var isPresented = false
     private var agentBlockedTracker = TmuxAgentBlockedTracker()
+    private var agentMetadataRepollGate = TmuxAgentMetadataRepollGate(
+        minimumInterval: TmuxTerminalSession.agentMetadataRepollMinInterval
+    )
     private var agentMetadataPollTimer: Timer?
     private var didStartLink = false
     private var linkIsActive = false
@@ -307,8 +314,10 @@ final class TmuxTerminalSession: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             let enabled = await self.controller.responsiveAccordionEnabled()
+            let seatContractDetected = await self.controller.seatContractDetected()
             guard !self.isShutDown else { return }
             self.serverResponsiveAccordionEnabled = enabled
+            self.serverSeatContractDetected = seatContractDetected
         }
     }
 
@@ -473,6 +482,7 @@ final class TmuxTerminalSession: ObservableObject {
     // MARK: Pane agent metadata
 
     private static let agentMetadataPollInterval: TimeInterval = 4
+    private static let agentMetadataRepollMinInterval: TimeInterval = 2
 
     private func startAgentMetadataPollingIfNeeded() {
         guard state == .ready, agentMetadataPollTimer == nil else { return }
@@ -482,7 +492,7 @@ final class TmuxTerminalSession: ObservableObject {
             repeats: true
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.pollAgentMetadataIfReady()
+                self?.pollAgentMetadataIfReady(rateLimited: false)
             }
         }
     }
@@ -491,17 +501,31 @@ final class TmuxTerminalSession: ObservableObject {
         agentMetadataPollTimer?.invalidate()
         agentMetadataPollTimer = nil
         paneAgentInfo = [:]
+        clearAgentBlockedNotifications(for: agentBlockedTracker.blockedPaneIDs)
         agentBlockedTracker.reset()
+        agentMetadataRepollGate.reset()
     }
 
-    private func pollAgentMetadataIfReady() {
+    private func pollAgentMetadataIfReady(rateLimited: Bool = true) {
         guard !isShutDown, state == .ready else { return }
+        let now = ProcessInfo.processInfo.systemUptime
+        if rateLimited {
+            guard agentMetadataRepollGate.admit(at: now) else { return }
+        } else {
+            agentMetadataRepollGate.recordPoll(at: now)
+        }
         controller.requestPaneAgentMetadataPoll()
     }
 
     private func handlePaneAgentMetadata(_ infos: [TmuxPaneID: TmuxPaneAgentInfo]) {
-        paneAgentInfo = infos
+        // An unchanged snapshot must not republish: every poll would repaint
+        // the badges and screens observing `paneAgentInfo`.
+        if paneAgentInfo != infos { paneAgentInfo = infos }
+        let previouslyBlocked = agentBlockedTracker.blockedPaneIDs
         let newlyBlockedPaneIDs = agentBlockedTracker.update(with: infos)
+        clearAgentBlockedNotifications(
+            for: previouslyBlocked.subtracting(agentBlockedTracker.blockedPaneIDs)
+        )
         guard !newlyBlockedPaneIDs.isEmpty, let agentStateNotifier else { return }
 
         let policy = TmuxAgentBlockedAlertPolicy(
@@ -517,6 +541,16 @@ final class TmuxTerminalSession: ObservableObject {
                 currentCommand: pane?.currentCommand ?? "",
                 currentPath: pane?.currentPath ?? ""
             ))
+        }
+    }
+
+    /// Drops banners for panes that left the blocked state or whose session
+    /// detached, so a stale "needs input" alert does not linger.
+    private func clearAgentBlockedNotifications(for paneIDs: Set<TmuxPaneID>) {
+        guard let agentStateNotifier, !paneIDs.isEmpty else { return }
+        let sessionName = topology?.sessionName ?? ""
+        for paneID in paneIDs.sorted() {
+            agentStateNotifier.clearAgentBlocked(sessionName: sessionName, paneID: paneID)
         }
     }
 

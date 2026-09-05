@@ -1,3 +1,4 @@
+import Combine
 import GhosttyKit
 import XCTest
 
@@ -59,7 +60,10 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         )
     }
 
-    private func makeSession(runtime: GhosttyKitRuntime) -> TmuxTerminalSession {
+    private func makeSession(
+        runtime: GhosttyKitRuntime,
+        agentStateNotifier: (any TmuxAgentStateNotifying)? = nil
+    ) -> TmuxTerminalSession {
         TmuxTerminalSession(
             app: runtime.appHandleForTesting,
             transport: DeterministicTmuxControlTransport(chunks: []),
@@ -69,7 +73,8 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
                 completion(.failure(.surfaceCreationFailed(
                     GHOSTTY_TERMINAL_SURFACE_RESULT_INVALID_INPUT
                 )))
-            }
+            },
+            agentStateNotifier: agentStateNotifier
         )
     }
 
@@ -530,6 +535,67 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testUnchangedPaneAgentMetadataDoesNotRepublish() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        var emissions: [[TmuxPaneID: TmuxPaneAgentInfo]] = []
+        let observation = session.$paneAgentInfo.sink { emissions.append($0) }
+        defer { observation.cancel() }
+
+        let blocked: [TmuxPaneID: TmuxPaneAgentInfo] = [10: TmuxPaneAgentInfo(state: .blocked)]
+        let working: [TmuxPaneID: TmuxPaneAgentInfo] = [10: TmuxPaneAgentInfo(state: .working)]
+        session.handlePaneAgentMetadataForTesting(blocked)
+        session.handlePaneAgentMetadataForTesting(blocked)
+        session.handlePaneAgentMetadataForTesting(working)
+
+        XCTAssertEqual(
+            emissions,
+            [[:], blocked, working],
+            "a repeated poll snapshot must not republish and repaint observers"
+        )
+
+        await session.shutdown()
+    }
+
+    func testBlockedAgentAlertFiresAfterBaselineAndClearsOnUnblockAndShutdown() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let notifier = RecordingTmuxAgentStateNotifier()
+        let session = makeSession(runtime: runtime, agentStateNotifier: notifier)
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agents",
+            windows: [window(id: 1, active: true, paneID: 10, zoomed: false)],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "claude")],
+            activeWindowID: 1
+        ))
+
+        session.handlePaneAgentMetadataForTesting([10: TmuxPaneAgentInfo(state: .blocked)])
+        XCTAssertTrue(
+            notifier.notifications.isEmpty,
+            "panes already blocked when polling starts seed the baseline silently"
+        )
+
+        session.handlePaneAgentMetadataForTesting([10: .idle])
+        session.handlePaneAgentMetadataForTesting([10: TmuxPaneAgentInfo(state: .blocked)])
+
+        XCTAssertEqual(notifier.notifications.map(\.paneID), [10])
+        XCTAssertEqual(notifier.notifications.map(\.sessionName), ["agents"])
+        XCTAssertEqual(
+            notifier.clears.map(\.paneID),
+            [10],
+            "leaving the blocked state drops the lingering banner"
+        )
+        XCTAssertEqual(notifier.clears.map(\.sessionName), ["agents"])
+
+        await session.shutdown()
+
+        XCTAssertEqual(
+            notifier.clears.map(\.paneID),
+            [10, 10],
+            "tearing the session down clears banners for still-blocked panes"
+        )
+        XCTAssertEqual(notifier.clears.map(\.sessionName), ["agents", "agents"])
+    }
+
     func testWindowProjectionReflectsEmittedTopologyImmediately() async throws {
         let runtime = try GhosttyKitRuntime()
         let session = makeSession(runtime: runtime)
@@ -842,5 +908,18 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.focusNextTmuxAgentTopLevel(), .missingTarget(.agentWindow))
 
         await session.shutdown()
+    }
+}
+
+private final class RecordingTmuxAgentStateNotifier: TmuxAgentStateNotifying, @unchecked Sendable {
+    private(set) var notifications: [TmuxAgentBlockedNotification] = []
+    private(set) var clears: [(sessionName: String, paneID: TmuxPaneID)] = []
+
+    func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification) {
+        notifications.append(notification)
+    }
+
+    func clearAgentBlocked(sessionName: String, paneID: TmuxPaneID) {
+        clears.append((sessionName, paneID))
     }
 }

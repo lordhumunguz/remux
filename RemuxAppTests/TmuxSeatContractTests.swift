@@ -6,73 +6,101 @@ import XCTest
 final class TmuxSeatContractTests: XCTestCase {
     // MARK: %exit classification
 
-    func testBareExitClassifiesAsSeatTaken() {
-        XCTAssertEqual(TmuxSeatContract.classify(exitDetail: nil), .seatTaken)
-        XCTAssertEqual(TmuxSeatContract.classify(exitDetail: ""), .seatTaken)
-        XCTAssertEqual(TmuxSeatContract.classify(exitDetail: "  \n"), .seatTaken)
+    func testBareExitClassifiesAsSeatTakenOnlyWithSeatContract() {
+        for detail in [nil, "", "  \n"] {
+            XCTAssertEqual(
+                TmuxSeatContract.classify(exitDetail: detail, seatContractDetected: true),
+                .seatTaken,
+                "on a single-seat server a bare %exit is the detach path"
+            )
+            XCTAssertEqual(
+                TmuxSeatContract.classify(exitDetail: detail, seatContractDetected: false),
+                .serverExited,
+                "on plain servers a bare %exit also covers kill-session/kill-server"
+            )
+        }
     }
 
-    func testDetachReasonsClassifyAsSeatTaken() {
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "detached (from session main)"),
-            .seatTaken
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "detached"),
-            .seatTaken
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "detached and SIGHUP (from session main)"),
-            .seatTaken
-        )
+    func testDetachReasonsClassifyAsSeatTakenRegardlessOfContract() {
+        for detected in [true, false] {
+            XCTAssertEqual(
+                TmuxSeatContract.classify(
+                    exitDetail: "detached (from session main)",
+                    seatContractDetected: detected
+                ),
+                .seatTaken
+            )
+            XCTAssertEqual(
+                TmuxSeatContract.classify(exitDetail: "detached", seatContractDetected: detected),
+                .seatTaken
+            )
+            XCTAssertEqual(
+                TmuxSeatContract.classify(
+                    exitDetail: "detached and SIGHUP (from session main)",
+                    seatContractDetected: detected
+                ),
+                .seatTaken
+            )
+        }
     }
 
     func testServerAndSessionExitsDoNotClassifyAsSeatTaken() {
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "server exited"),
-            .serverExited
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "server exited unexpectedly"),
-            .serverExited
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "exited"),
-            .serverExited
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "terminated"),
-            .serverExited
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "lost tty"),
-            .serverExited
-        )
-        XCTAssertEqual(
-            TmuxSeatContract.classify(exitDetail: "something unexpected"),
-            .serverExited
-        )
+        for detail in [
+            "server exited",
+            "server exited unexpectedly",
+            "exited",
+            "terminated",
+            "lost tty",
+            "something unexpected",
+        ] {
+            XCTAssertEqual(
+                TmuxSeatContract.classify(exitDetail: detail, seatContractDetected: true),
+                .serverExited,
+                detail
+            )
+        }
+    }
+
+    func testSeatContractDetectionReadsClientAttachedHook() {
+        XCTAssertTrue(TmuxSeatContract.detectsSeatContract(
+            showHooksOutput: "client-attached detach-client\n"
+        ))
+        XCTAssertTrue(TmuxSeatContract.detectsSeatContract(
+            showHooksOutput: "client-attached \"if -F '#{==:#{session_attached},1}' { detach-client }\"\n"
+        ))
+        XCTAssertFalse(TmuxSeatContract.detectsSeatContract(showHooksOutput: ""))
+        XCTAssertFalse(TmuxSeatContract.detectsSeatContract(
+            showHooksOutput: "client-attached display-message hello\n"
+        ))
     }
 
     func testSeatTakenDisconnectReasonMapping() {
         XCTAssertEqual(
-            TmuxSessionController.DetachReason.serverExited(nil).terminalDisconnectReason.kind,
+            TmuxSessionController.DetachReason.serverExited(nil)
+                .terminalDisconnectReason(seatContractDetected: true).kind,
             .seatTaken
         )
         XCTAssertEqual(
             TmuxSessionController.DetachReason.serverExited("detached (from session main)")
-                .terminalDisconnectReason.kind,
+                .terminalDisconnectReason(seatContractDetected: false).kind,
             .seatTaken
         )
         XCTAssertEqual(
+            TmuxSessionController.DetachReason.serverExited(nil)
+                .terminalDisconnectReason(seatContractDetected: false).kind,
+            .remoteExit,
+            "without the seat hook a bare %exit is a real exit"
+        )
+        XCTAssertEqual(
             TmuxSessionController.DetachReason.serverExited("server exited")
-                .terminalDisconnectReason.kind,
+                .terminalDisconnectReason(seatContractDetected: true).kind,
             .remoteExit
         )
     }
 
     func testSeatTakenNeverReconnectsAutomatically() {
-        let reason = TmuxSessionController.DetachReason.serverExited(nil).terminalDisconnectReason
+        let reason = TmuxSessionController.DetachReason.serverExited(nil)
+            .terminalDisconnectReason(seatContractDetected: true)
         XCTAssertFalse(reason.allowsAutomaticReconnect)
     }
 

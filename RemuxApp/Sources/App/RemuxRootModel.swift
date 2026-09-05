@@ -333,7 +333,7 @@ final class RemuxRootModel: ObservableObject {
     private var activeSetupAction: SetupAction?
     private var editServerTrustSnapshot: EditServerTrustSnapshot?
     private var tmuxSessionRefreshes: [SavedServer.ID: TmuxSessionRefresh] = [:]
-    private var seatProbeInFlight = false
+    private var seatProbeTask: Task<Bool, Never>?
     private var responsiveAccordionObservations: [TerminalRuntimeAttemptKey: AnyCancellable] = [:]
 
     init(
@@ -1239,11 +1239,20 @@ final class RemuxRootModel: ObservableObject {
         workspace: SavedWorkspace,
         sshAuth: ResolvedSSHAuth
     ) async -> Bool {
-        guard pendingSeatTakeover == nil, !seatProbeInFlight else { return false }
-        seatProbeInFlight = true
-        defer { seatProbeInFlight = false }
+        // A connect started while another probe runs waits for it and then
+        // probes its own target; skipping the wait would attach it with no
+        // occupancy check at all.
+        if let seatProbeTask {
+            _ = await seatProbeTask.value
+        }
+        guard pendingSeatTakeover == nil else { return false }
         let probeTarget = target(server: server, workspace: workspace, sshAuth: sshAuth)
-        let occupied = await dependencies.probeTmuxSeatOccupancy(for: probeTarget)
+        let probe = Task { [dependencies] in
+            await dependencies.probeTmuxSeatOccupancy(for: probeTarget)
+        }
+        seatProbeTask = probe
+        let occupied = await probe.value
+        if seatProbeTask == probe { seatProbeTask = nil }
         guard occupied, pendingSeatTakeover == nil else { return false }
         pendingSeatTakeover = SeatTakeoverRequest(
             server: server,

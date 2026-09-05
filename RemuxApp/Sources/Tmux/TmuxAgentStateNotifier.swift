@@ -5,6 +5,9 @@ import UserNotifications
 /// testable without a notification center.
 protocol TmuxAgentStateNotifying: Sendable {
     func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification)
+    /// Drops the banner for a pane that is no longer blocked or whose
+    /// session went away.
+    func clearAgentBlocked(sessionName: String, paneID: TmuxPaneID)
 }
 
 /// Posts one local notification per blocked episode. Authorization is
@@ -13,7 +16,13 @@ protocol TmuxAgentStateNotifying: Sendable {
 struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
     static let shared = TmuxAgentStateNotifier()
 
-    private let categoryIdentifier = "remux.agent-blocked"
+    private static let categoryIdentifier = "remux.agent-blocked"
+
+    /// Pane IDs are per-server, so the session scopes the identifier;
+    /// without it the same pane on two servers would share one banner.
+    static func identifier(sessionName: String, paneID: TmuxPaneID) -> String {
+        "\(categoryIdentifier).\(sessionName).\(paneID.rawValue)"
+    }
 
     func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification) {
         let center = UNUserNotificationCenter.current()
@@ -25,12 +34,22 @@ struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
             content.sound = .default
             content.threadIdentifier = notification.sessionName
             let request = UNNotificationRequest(
-                identifier: "\(categoryIdentifier).\(notification.paneID.rawValue)",
+                identifier: Self.identifier(
+                    sessionName: notification.sessionName,
+                    paneID: notification.paneID
+                ),
                 content: content,
                 trigger: nil
             )
             center.add(request)
         }
+    }
+
+    func clearAgentBlocked(sessionName: String, paneID: TmuxPaneID) {
+        let identifier = Self.identifier(sessionName: sessionName, paneID: paneID)
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
     }
 
     private static func body(for notification: TmuxAgentBlockedNotification) -> String {
