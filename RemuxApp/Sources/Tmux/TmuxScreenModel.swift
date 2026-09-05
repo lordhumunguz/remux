@@ -25,6 +25,9 @@ final class TmuxScreenModel: ObservableObject {
     /// Highest-priority pane agent state in this session, for the session
     /// switcher's urgency ordering and badges.
     @Published private(set) var sessionAgentState: TmuxPaneAgentState = .idle
+    /// Mirrors the session's cached server-option probe for observers one
+    /// level up (settings UI), without handing them the session itself.
+    @Published private(set) var serverResponsiveAccordionEnabled = false
 
     /// The reducer's expectations: the target this session connects to.
     var runtimeConnectionTarget: TmuxConnectionTarget { target }
@@ -57,6 +60,7 @@ final class TmuxScreenModel: ObservableObject {
     private var stateObservation: AnyCancellable?
     private var transportFailureObservation: AnyCancellable?
     private var agentInfoObservation: AnyCancellable?
+    private var responsiveAccordionObservation: AnyCancellable?
     private var stopped = false
     private var initialViewport: TmuxControlViewport?
     private var lastSubmittedClientSize: TmuxSessionController.ClientSize?
@@ -161,6 +165,12 @@ final class TmuxScreenModel: ObservableObject {
             .sink { [weak self] aggregate in
                 self?.sessionAgentState = aggregate
             }
+
+        responsiveAccordionObservation = session.$serverResponsiveAccordionEnabled
+            .sink { [weak self] enabled in
+                self?.serverResponsiveAccordionEnabled = enabled
+            }
+
 
         GhosttyRuntimeTrace.flowEventIfActive(flow, event: "model.session.created")
         if let initialViewport {
@@ -359,6 +369,7 @@ final class TmuxScreenModel: ObservableObject {
         stateObservation = nil
         transportFailureObservation = nil
         agentInfoObservation = nil
+        responsiveAccordionObservation = nil
         terminalScreenAdapter.prepareForSessionShutdown()
         terminalScreenAdapter.invalidate()
         if let session {

@@ -280,6 +280,15 @@ final class RemuxRootModel: ObservableObject {
         case failed(String)
     }
 
+    /// A connect paused because the target session is currently viewed by an
+    /// interactive (non-control) tmux client; attaching would take the seat
+    /// from it. Confirming resumes the exact connect that was paused.
+    struct SeatTakeoverRequest: Equatable {
+        let server: SavedServer
+        let workspace: SavedWorkspace
+        let sshAuth: ResolvedSSHAuth
+    }
+
     @Published private(set) var state: State = .loading {
         didSet { propagateTerminalPresentation() }
     }
@@ -289,6 +298,10 @@ final class RemuxRootModel: ObservableObject {
     @Published private(set) var activeSessions: [ActiveTerminalSession] = []
     @Published private(set) var isSetupActionInProgress = false
     @Published private(set) var tmuxSessionDiscoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState] = [:]
+    @Published private(set) var pendingSeatTakeover: SeatTakeoverRequest?
+    /// True while any attached session's server reported a responsive
+    /// accordion layout, which pauses Remux's own multipane zoom there.
+    @Published private(set) var serverResponsiveAccordionDetected = false
 
     var setupSessionID: UUID? {
         currentSetupID
@@ -319,6 +332,8 @@ final class RemuxRootModel: ObservableObject {
     private var activeSetupAction: SetupAction?
     private var editServerTrustSnapshot: EditServerTrustSnapshot?
     private var tmuxSessionRefreshes: [SavedServer.ID: TmuxSessionRefresh] = [:]
+    private var seatProbeInFlight = false
+    private var responsiveAccordionObservations: [TerminalRuntimeAttemptKey: AnyCancellable] = [:]
 
     init(
         dependencies: RemuxAppDependencies,
@@ -1198,6 +1213,69 @@ final class RemuxRootModel: ObservableObject {
             return
         }
 
+        if await presentSeatTakeoverWarningIfNeeded(
+            server: server,
+            workspace: workspace,
+            sshAuth: sshAuth
+        ) {
+            GhosttyRuntimeTrace.flowEvent(
+                flow,
+                event: "model.connect.seatTakeoverWarning",
+                fields: ["workspaceID": workspaceID.uuidString]
+            )
+            return
+        }
+
+        await finishConnect(server: server, workspace: workspace, sshAuth: sshAuth)
+    }
+
+    /// Pauses an interactive connect when another (non-control) tmux client
+    /// currently views the session, since attaching would take the seat from
+    /// it. Returns true when a warning was presented and the connect must
+    /// wait for `confirmSeatTakeover` / `cancelSeatTakeover`.
+    private func presentSeatTakeoverWarningIfNeeded(
+        server: SavedServer,
+        workspace: SavedWorkspace,
+        sshAuth: ResolvedSSHAuth
+    ) async -> Bool {
+        guard pendingSeatTakeover == nil, !seatProbeInFlight else { return false }
+        seatProbeInFlight = true
+        defer { seatProbeInFlight = false }
+        let probeTarget = target(server: server, workspace: workspace, sshAuth: sshAuth)
+        let occupied = await dependencies.probeTmuxSeatOccupancy(for: probeTarget)
+        guard occupied, pendingSeatTakeover == nil else { return false }
+        pendingSeatTakeover = SeatTakeoverRequest(
+            server: server,
+            workspace: workspace,
+            sshAuth: sshAuth
+        )
+        return true
+    }
+
+    func confirmSeatTakeover(_ request: SeatTakeoverRequest) {
+        guard pendingSeatTakeover == request else { return }
+        pendingSeatTakeover = nil
+        Task {
+            await finishConnect(
+                server: request.server,
+                workspace: request.workspace,
+                sshAuth: request.sshAuth
+            )
+        }
+    }
+
+    func cancelSeatTakeover() {
+        pendingSeatTakeover = nil
+    }
+
+    private func finishConnect(
+        server: SavedServer,
+        workspace: SavedWorkspace,
+        sshAuth: ResolvedSSHAuth
+    ) async {
+        let workspaceID = workspace.id
+        let flow = sessionOpenFlowID(workspaceID)
+
         var openedWorkspace = workspace
         openedWorkspace.lastOpenedAt = Date()
 
@@ -1716,7 +1794,7 @@ final class RemuxRootModel: ObservableObject {
             return reason.message
         case .hostKey:
             return "Remux could not verify the SSH host key."
-        case .transportIO, .profile, .remoteExit, .runtime, .userClosed, .unknown:
+        case .transportIO, .profile, .remoteExit, .seatTaken, .runtime, .userClosed, .unknown:
             return error.localizedDescription
         }
     }
@@ -2050,6 +2128,10 @@ final class RemuxRootModel: ObservableObject {
                     instanceID: session.instanceID
                 )
             }
+        responsiveAccordionObservations[key] = model.$serverResponsiveAccordionEnabled
+            .sink { [weak self] _ in
+                self?.reconcileServerResponsiveAccordionDetection()
+            }
         propagateTerminalPresentation()
     }
 
@@ -2074,6 +2156,12 @@ final class RemuxRootModel: ObservableObject {
         }()
         for (key, model) in terminalScreenModels {
             model.setSessionPresented(key.workspaceID == selectedID)
+        }
+    }
+
+    private func reconcileServerResponsiveAccordionDetection() {
+        serverResponsiveAccordionDetected = terminalScreenModels.values.contains {
+            $0.serverResponsiveAccordionEnabled
         }
     }
 
@@ -2109,7 +2197,9 @@ final class RemuxRootModel: ObservableObject {
         for key in removed.keys {
             terminalScreenModels[key] = nil
             agentStateObservations[key] = nil
+            responsiveAccordionObservations[key] = nil
         }
+        reconcileServerResponsiveAccordionDetection()
         for model in removed.values {
             // Teardown ordering (surface unregister/free before terminal
             // release, link before controller) is owned by the model; the

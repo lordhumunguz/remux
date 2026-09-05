@@ -45,6 +45,11 @@ struct RemuxAppDependencies: Sendable {
         _ trustedHostStore: TrustedHostStore,
         _ sshRootService: RemuxSSHRootService
     ) async throws -> [String]
+    private let tmuxSeatProber: @Sendable (
+        _ target: TmuxConnectionTarget,
+        _ trustedHostStore: TrustedHostStore,
+        _ sshRootService: RemuxSSHRootService
+    ) async -> Bool
     private let debugConnectionSeeder: @Sendable (
         _ profileRepository: any ConnectionProfileRepository,
         _ credentialStore: any SSHCredentialStore
@@ -78,6 +83,11 @@ struct RemuxAppDependencies: Sendable {
             _ trustedHostStore: TrustedHostStore,
             _ sshRootService: RemuxSSHRootService
         ) async throws -> [String] = RemuxAppDependencies.liveTmuxSessionDiscoverer,
+        tmuxSeatProber: @escaping @Sendable (
+            _ target: TmuxConnectionTarget,
+            _ trustedHostStore: TrustedHostStore,
+            _ sshRootService: RemuxSSHRootService
+        ) async -> Bool = RemuxAppDependencies.liveTmuxSeatProber,
         debugConnectionSeeder: @escaping @Sendable (
             _ profileRepository: any ConnectionProfileRepository,
             _ credentialStore: any SSHCredentialStore
@@ -94,6 +104,7 @@ struct RemuxAppDependencies: Sendable {
         self.sshConnectionPrewarmer = sshConnectionPrewarmer
         self.attachmentTransferServiceFactory = attachmentTransferServiceFactory
         self.tmuxSessionDiscoverer = tmuxSessionDiscoverer
+        self.tmuxSeatProber = tmuxSeatProber
         self.debugConnectionSeeder = debugConnectionSeeder
     }
 
@@ -181,6 +192,14 @@ struct RemuxAppDependencies: Sendable {
 
     func discoverTmuxSessions(for target: TmuxConnectionTarget) async throws -> [String] {
         try await tmuxSessionDiscoverer(target, trustedHostStore, sshRootService)
+    }
+
+    /// Pre-attach seat check: true when an interactive (non-control) client
+    /// currently views the target session, so attaching would take the seat
+    /// from it. Probe failures resolve to false; connecting must never be
+    /// blocked by an auxiliary check.
+    func probeTmuxSeatOccupancy(for target: TmuxConnectionTarget) async -> Bool {
+        await tmuxSeatProber(target, trustedHostStore, sshRootService)
     }
 
     func closeIdleSSHConnections(forServerID serverID: SavedServer.ID) {
@@ -330,6 +349,44 @@ struct RemuxAppDependencies: Sendable {
         } catch {
             await preparedRoot.cancelAndCleanup()
             throw error
+        }
+    }
+
+    private static func liveTmuxSeatProber(
+        target: TmuxConnectionTarget,
+        trustedHostStore: TrustedHostStore,
+        sshRootService: RemuxSSHRootService
+    ) async -> Bool {
+        let trace = RemuxTransportStartupTrace(
+            flowID: "session.seat.\(target.server.id.uuidString)"
+        )
+        let configuration = sshConfiguration(
+            for: target,
+            trustedHostStore: trustedHostStore,
+            tailscaleSSHCheckChallengeBroker: sshRootService.tailscaleSSHCheckChallengeBroker,
+            traceFlowID: nil
+        )
+        guard let rootKey = configuration.sshRootKey else { return false }
+
+        let preparedRoot = await sshRootService.preparedRoot(
+            for: rootKey,
+            configuration: configuration.sshRootConfiguration,
+            trace: trace
+        )
+        do {
+            let sshRoot = try await preparedRoot.sshRoot()
+            let claimedRoot = try await preparedRoot.claim(sshRoot, trace: trace)
+            let occupied = try await TmuxSeatOccupancyProbe.probe(
+                using: claimedRoot,
+                tmuxExecutable: configuration.tmuxExecutable,
+                sessionName: target.workspace.sessionName,
+                trace: trace
+            )
+            await preparedRoot.cancelAndCleanup()
+            return occupied
+        } catch {
+            await preparedRoot.cancelAndCleanup()
+            return false
         }
     }
 
@@ -484,7 +541,8 @@ struct RemuxAppDependencies: Sendable {
                 for try await _ in suspension.stream {
                 }
                 return []
-            }
+            },
+            tmuxSeatProber: { _, _, _ in false }
         )
     }
 

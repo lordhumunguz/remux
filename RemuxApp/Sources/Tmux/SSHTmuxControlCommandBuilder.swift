@@ -30,6 +30,16 @@ enum SSHTmuxControlCommandBuilder {
         ].joined(separator: " ")
     }
 
+    static func seatOccupancyCommand(tmuxExecutable: String, sessionName: String) -> String {
+        // `list-clients` fails when the session or server is absent; the
+        // caller treats a nonzero exit as "no viewer holds the seat".
+        [
+            "exec /bin/sh -c '\(seatOccupancyScript)' remux",
+            octalEncodedArgument(tmuxExecutable),
+            octalEncodedArgument(sessionName),
+        ].joined(separator: " ")
+    }
+
     private static let launchScript = [
         #"PATH="${PATH:+$PATH:}\#(fallbackRemotePath)""#,
         "export PATH",
@@ -52,6 +62,20 @@ enum SSHTmuxControlCommandBuilder {
         #"tmux=$(printf %b "$1")"#,
         #"resolved=$(command -v "$tmux" 2> /dev/null)"#,
         "if [ -x \"$resolved\" ]; then exec \"$resolved\" list-sessions -F \"#{session_name}\"; fi",
+        #"if [ -e "$tmux" ]; then echo "\#(tmuxNotExecutableMarker): $tmux" >&2; exit 126; fi"#,
+        #"echo "\#(tmuxNotFoundMarker): $tmux" >&2"#,
+        "exit 127",
+    ].joined(separator: "; ")
+
+    private static let seatOccupancyScript = [
+        #"PATH="${PATH:+$PATH:}\#(fallbackRemotePath)""#,
+        "export PATH",
+        "LC_ALL=C",
+        "export LC_ALL",
+        #"tmux=$(printf %b "$1")"#,
+        #"session=$(printf %b "$2")"#,
+        #"resolved=$(command -v "$tmux" 2> /dev/null)"#,
+        #"if [ -x "$resolved" ]; then exec "$resolved" list-clients -t "=$session" -F '#{client_control_mode}'; fi"#,
         #"if [ -e "$tmux" ]; then echo "\#(tmuxNotExecutableMarker): $tmux" >&2; exit 126; fi"#,
         #"echo "\#(tmuxNotFoundMarker): $tmux" >&2"#,
         "exit 127",

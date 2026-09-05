@@ -119,6 +119,10 @@ actor TmuxSessionLink {
 
         pendingReadTask?.cancel()
         _ = await pendingReadTask?.result
+        // Explicitly detach the control client before dropping the channel;
+        // otherwise the server keeps an orphaned client until its reaper
+        // notices. Best-effort: a dead transport simply swallows the bytes.
+        await controller.detachClient()
         await controller.finishOutbound()
         outboundContinuation.finish()
         await finishWriteTask(pendingWriteTask)

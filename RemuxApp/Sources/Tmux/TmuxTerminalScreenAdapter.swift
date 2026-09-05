@@ -5,10 +5,20 @@ import GhosttyKit
 
 struct TmuxMultipaneZoomDefaultPolicy {
     var isEnabled = false
+    /// Set when the attached server grows the focused pane itself (responsive
+    /// accordion layout). While set, Remux must not apply its own tmux zoom
+    /// in either direction: double-zooming fights the server hook.
+    var serverAccordionLayoutEnabled = false
     private var resolvedWindowIDs: Set<TmuxWindowID> = []
 
     init(isEnabled: Bool = false) {
         self.isEnabled = isEnabled
+    }
+
+    /// Whether the policy may zoom a window right now (setting on and not
+    /// suppressed by a server-side accordion layout).
+    var appliesZoomDefault: Bool {
+        isEnabled && !serverAccordionLayoutEnabled
     }
 
     mutating func setEnabled(_ enabled: Bool) -> Bool {
@@ -22,6 +32,7 @@ struct TmuxMultipaneZoomDefaultPolicy {
         in topology: TmuxSessionController.TopologySnapshot,
         includingMatchingWindows: Bool = false
     ) -> [TmuxWindowID] {
+        guard !serverAccordionLayoutEnabled else { return [] }
         var targets: [TmuxWindowID] = []
 
         for window in topology.windows {
@@ -189,6 +200,22 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
                 self.objectWillChange.send()
             }
             .store(in: &subscriptions)
+        session.$serverResponsiveAccordionEnabled
+            .sink { [weak self] enabled in
+                self?.handleServerResponsiveAccordionChange(enabled)
+            }
+            .store(in: &subscriptions)
+    }
+
+    private func handleServerResponsiveAccordionChange(_ enabled: Bool) {
+        guard enabled != multipaneZoomDefault.serverAccordionLayoutEnabled else { return }
+        multipaneZoomDefault.serverAccordionLayoutEnabled = enabled
+        if enabled {
+            // Back off zooms Remux already applied before the server option
+            // probe resolved; the accordion hook owns pane growth now.
+            attemptOwnedZoomCleanup()
+        }
+        objectWillChange.send()
     }
 
     func invalidate() {
@@ -200,6 +227,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         pendingZoomOwnershipWindowIDs.removeAll()
         pendingOwnedZoomPreservation = nil
         multipaneZoomDefault.reset()
+        multipaneZoomDefault.serverAccordionLayoutEnabled = false
         activeManagedPaneID = nil
         pendingFocusedPaneID = nil
         session = nil
@@ -903,7 +931,7 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         }
         let appliesDefaultZoom = !hasSibling
             && !window.zoomed
-            && multipaneZoomDefault.isEnabled
+            && multipaneZoomDefault.appliesZoomDefault
         let onZoomCreated: (@Sendable () -> Void)?
         if appliesDefaultZoom {
             let windowID = window.id
@@ -1157,10 +1185,18 @@ extension TmuxSessionController.DetachReason {
     var terminalDisconnectReason: TerminalDisconnectReason {
         switch self {
         case .serverExited(let message):
-            TerminalDisconnectReason(
-                kind: .remoteExit,
-                message: message ?? "tmux server exited"
-            )
+            switch TmuxSeatContract.classify(exitDetail: message) {
+            case .seatTaken:
+                TerminalDisconnectReason(
+                    kind: .seatTaken,
+                    message: "detached by another client"
+                )
+            case .serverExited:
+                TerminalDisconnectReason(
+                    kind: .remoteExit,
+                    message: message ?? "tmux server exited"
+                )
+            }
         case .transportClosed:
             TerminalDisconnectReason(
                 kind: .transportIO,

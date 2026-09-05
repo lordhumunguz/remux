@@ -37,6 +37,7 @@ final class TerminalRuntimeStatusPresentationTests: XCTestCase {
             (.hostKey, "Host Key"),
             (.profile, "Profile Error"),
             (.remoteExit, "Exited"),
+            (.seatTaken, "Moved"),
             (.runtime, "Terminal Error"),
             (.userClosed, "Closed"),
             (.transportIO, "Disconnected"),

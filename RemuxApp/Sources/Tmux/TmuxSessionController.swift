@@ -209,6 +209,7 @@ final class TmuxSessionController: @unchecked Sendable {
             @Sendable (Result<String, PaneCurrentDirectoryError>) -> Void
         )
         case paneAgentMetadataPoll
+        case responsiveAccordion(@Sendable (Bool) -> Void)
         case trackedInput(@Sendable (Bool) -> Void)
     }
 
@@ -313,6 +314,7 @@ final class TmuxSessionController: @unchecked Sendable {
         queue.async { [self] in
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
+            failOutstandingResponsiveAccordionQueries()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -333,6 +335,7 @@ final class TmuxSessionController: @unchecked Sendable {
         queue.async { [self] in
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
+            failOutstandingResponsiveAccordionQueries()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -351,9 +354,11 @@ final class TmuxSessionController: @unchecked Sendable {
             shuttingDown = true
             outboundSink = nil
             let directoryQueries = outstandingPaneDirectoryQueries()
+            let accordionQueries = outstandingResponsiveAccordionQueries()
             let trackedInputCompletions = outstandingTrackedInputCompletions()
             requestsByToken.removeAll()
             directoryQueries.forEach { $0(.failure(.sessionUnavailable)) }
+            accordionQueries.forEach { $0(false) }
             trackedInputCompletions.forEach { $0(false) }
             deferredNavigationIntent = nil
             deferredWindowZoomIntent = nil
@@ -432,6 +437,7 @@ final class TmuxSessionController: @unchecked Sendable {
         switch action.tag {
         case GHOSTTY_TMUX_ACTION_EXIT:
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
+            failOutstandingResponsiveAccordionQueries()
             failOutstandingTrackedInput()
             forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
@@ -569,6 +575,9 @@ final class TmuxSessionController: @unchecked Sendable {
             return
         case .paneAgentMetadataPoll:
             handlePaneAgentMetadataPollCompletion(completion)
+            return
+        case .responsiveAccordion(let completionHandler):
+            completionHandler(responsiveAccordionResult(for: completion))
             return
         case .action(let request, let topologyRevisionAtSubmission, let onSuccess):
             handleActionCompletion(
@@ -966,6 +975,41 @@ final class TmuxSessionController: @unchecked Sendable {
                     paneID: paneID,
                     completion: { continuation.resume(with: $0) }
                 )
+            }
+        }
+    }
+
+    /// One-shot probe of the server's responsive-accordion option. Servers
+    /// without that convention answer with an error block or an empty value;
+    /// both resolve to `false` so Remux keeps its own zoom policy.
+    func responsiveAccordionEnabled() async -> Bool {
+        await withCheckedContinuation { continuation in
+            queue.async { [self] in
+                submitResponsiveAccordionQueryOnWriter {
+                    continuation.resume(returning: $0)
+                }
+            }
+        }
+    }
+
+    /// Best-effort explicit detach of this control client, sent before link
+    /// teardown drops the channel so the server does not keep an orphaned
+    /// client for its reaper. No response is awaited and the command is only
+    /// sent while the attachment is live.
+    func detachClient() async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            queue.async { [self] in
+                defer { continuation.resume() }
+                guard let client, outboundSink != nil, !shuttingDown else { return }
+                switch state {
+                case .attaching, .syncing, .ready:
+                    break
+                case .detached, .closed:
+                    return
+                }
+                let (result, _) = enqueueCommandTokenOnWriter("detach-client", client: client)
+                guard result == GHOSTTY_TMUX_RESULT_OK else { return }
+                _ = drainOutbound()
             }
         }
     }
@@ -1468,6 +1512,30 @@ final class TmuxSessionController: @unchecked Sendable {
         _ = drainOutbound()
     }
 
+    private func submitResponsiveAccordionQueryOnWriter(
+        completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        preconditionOnWriterQueue()
+        guard let client, outboundSink != nil, !shuttingDown else {
+            completion(false)
+            return
+        }
+        let (result, token) = enqueueCommandTokenOnWriter(
+            TmuxResponsiveAccordion.showOptionCommand,
+            client: client
+        )
+        guard result == GHOSTTY_TMUX_RESULT_OK else {
+            completion(false)
+            if result == GHOSTTY_TMUX_RESULT_CLIENT_FAILED
+                || result == GHOSTTY_TMUX_RESULT_CLOSED {
+                handleClientFailure(result)
+            }
+            return
+        }
+        requestsByToken[token] = .responsiveAccordion(completion)
+        _ = drainOutbound()
+    }
+
     private func enqueueCommandTokenOnWriter(
         _ command: String,
         client: ghostty_tmux_client_t
@@ -1571,6 +1639,7 @@ final class TmuxSessionController: @unchecked Sendable {
         preconditionOnWriterQueue()
         guard !shuttingDown else { return }
         failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
+        failOutstandingResponsiveAccordionQueries()
         failOutstandingTrackedInput()
         forgetOutstandingPaneAgentMetadataPolls()
         deferredNavigationIntent = nil
@@ -1637,6 +1706,15 @@ final class TmuxSessionController: @unchecked Sendable {
         }
     }
 
+    private func responsiveAccordionResult(
+        for completion: ghostty_tmux_command_completion_s
+    ) -> Bool {
+        guard completion.status == GHOSTTY_TMUX_COMMAND_SUCCESS else { return false }
+        return TmuxResponsiveAccordion.isEnabled(
+            showOptionOutput: decodeTmuxString(completion.body)
+        )
+    }
+
     private func outstandingPaneDirectoryQueries() -> [
         @Sendable (Result<String, PaneCurrentDirectoryError>) -> Void
     ] {
@@ -1656,6 +1734,23 @@ final class TmuxSessionController: @unchecked Sendable {
             return false
         }
         completions.forEach { $0(.failure(error)) }
+    }
+
+    private func outstandingResponsiveAccordionQueries() -> [@Sendable (Bool) -> Void] {
+        requestsByToken.values.compactMap {
+            guard case .responsiveAccordion(let completion) = $0 else { return nil }
+            return completion
+        }
+    }
+
+    private func failOutstandingResponsiveAccordionQueries() {
+        preconditionOnWriterQueue()
+        let completions = outstandingResponsiveAccordionQueries()
+        requestsByToken = requestsByToken.filter {
+            guard case .responsiveAccordion = $0.value else { return true }
+            return false
+        }
+        completions.forEach { $0(false) }
     }
 
     private func outstandingTrackedInputCompletions() -> [@Sendable (Bool) -> Void] {

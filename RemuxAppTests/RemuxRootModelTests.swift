@@ -161,6 +161,84 @@ final class RemuxRootModelTests: XCTestCase {
         )
     }
 
+    func testOccupiedSeatPausesConnectUntilConfirmed() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(serverID: pair.server.id, sessionName: "main")
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            tmuxSeatProber: { _, _, _ in true }
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load()
+
+        await harness.model.connect(to: workspace.id)
+
+        let request = try XCTUnwrap(harness.model.pendingSeatTakeover)
+        XCTAssertEqual(request.workspace.id, workspace.id)
+        XCTAssertEqual(request.workspace.sessionName, "main")
+        XCTAssertTrue(harness.model.activeSessions.isEmpty)
+        XCTAssertEqual(harness.model.state, .library)
+
+        harness.model.confirmSeatTakeover(request)
+
+        let didConnect = await waitUntil {
+            harness.model.activeSessions.map(\.id) == [workspace.id]
+        }
+        XCTAssertTrue(didConnect)
+        XCTAssertNil(harness.model.pendingSeatTakeover)
+    }
+
+    func testOccupiedSeatConnectCanBeCancelledAndStaleConfirmIgnored() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(serverID: pair.server.id, sessionName: "main")
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            tmuxSeatProber: { _, _, _ in true }
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load()
+
+        await harness.model.connect(to: workspace.id)
+        let request = try XCTUnwrap(harness.model.pendingSeatTakeover)
+
+        harness.model.cancelSeatTakeover()
+        XCTAssertNil(harness.model.pendingSeatTakeover)
+
+        // A confirm arriving after the cancel (e.g. alert dismissal ordering)
+        // must not resurrect the paused connect.
+        harness.model.confirmSeatTakeover(request)
+        try? await Task.sleep(for: .milliseconds(100))
+        XCTAssertTrue(harness.model.activeSessions.isEmpty)
+        XCTAssertEqual(harness.model.state, .library)
+    }
+
+    func testUnoccupiedSeatConnectsWithoutWarning() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(serverID: pair.server.id, sessionName: "main")
+        let prober = RecordingTmuxSeatProber(occupied: false)
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            tmuxSeatProber: { target, _, _ in
+                await prober.probe(target)
+            }
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load()
+
+        await harness.model.connect(to: workspace.id)
+
+        XCTAssertEqual(harness.model.activeSessions.map(\.id), [workspace.id])
+        XCTAssertNil(harness.model.pendingSeatTakeover)
+        let probedSessions = await prober.sessionNames()
+        XCTAssertEqual(probedSessions, ["main"])
+    }
+
     func testInteractiveConnectionCancelsDiscoveryForItsServer() async throws {
         let pair = makePasswordBackedServer()
         let workspace = SavedWorkspace(serverID: pair.server.id, sessionName: "main")
@@ -3436,6 +3514,7 @@ final class RemuxRootModelTests: XCTestCase {
             TerminalDisconnectReason(kind: .hostKey, message: "host key changed"),
             TerminalDisconnectReason(kind: .profile, message: "invalid profile"),
             TerminalDisconnectReason(kind: .remoteExit, message: "remote exited"),
+            TerminalDisconnectReason(kind: .seatTaken, message: "detached by another client"),
             TerminalDisconnectReason(kind: .runtime, message: "runtime rejected output"),
             TerminalDisconnectReason(kind: .userClosed, message: "closed by user"),
             TerminalDisconnectReason(kind: .unknown, message: "unknown failure"),
@@ -3695,6 +3774,11 @@ final class RemuxRootModelTests: XCTestCase {
             TrustedHostStore,
             RemuxSSHRootService
         ) async throws -> [String])? = nil,
+        tmuxSeatProber: (@Sendable (
+            TmuxConnectionTarget,
+            TrustedHostStore,
+            RemuxSSHRootService
+        ) async -> Bool)? = nil,
         publicKeyInstaller: SSHPublicKeyInstaller? = nil,
         terminalScreenModelFactory: RemuxRootModel.TerminalScreenModelFactory? = nil
     ) -> RemuxRootModelHarness {
@@ -3720,6 +3804,7 @@ final class RemuxRootModelTests: XCTestCase {
             FailingGhosttyAttachmentTransferService()
         }
         let resolvedTmuxSessionDiscoverer = tmuxSessionDiscoverer ?? { _, _, _ in [] }
+        let resolvedTmuxSeatProber = tmuxSeatProber ?? { _, _, _ in false }
         let resolvedPublicKeyInstaller = publicKeyInstaller ?? makePublicKeyInstaller(
             recorder: RootModelPublicKeyInstallerRecorder(results: [])
         )
@@ -3735,6 +3820,7 @@ final class RemuxRootModelTests: XCTestCase {
             sshConnectionPrewarmer: resolvedSSHConnectionPrewarmer,
             attachmentTransferServiceFactory: resolvedAttachmentTransferServiceFactory,
             tmuxSessionDiscoverer: resolvedTmuxSessionDiscoverer,
+            tmuxSeatProber: resolvedTmuxSeatProber,
             debugConnectionSeeder: { _, _ in false }
         )
 
@@ -3948,6 +4034,24 @@ private struct RemuxRootModelHarness {
 
 private enum RootModelSetupTestError: Error {
     case expectedSetup
+}
+
+private actor RecordingTmuxSeatProber {
+    private let occupied: Bool
+    private var recordedSessionNames: [String] = []
+
+    init(occupied: Bool) {
+        self.occupied = occupied
+    }
+
+    func probe(_ target: TmuxConnectionTarget) -> Bool {
+        recordedSessionNames.append(target.workspace.sessionName)
+        return occupied
+    }
+
+    func sessionNames() -> [String] {
+        recordedSessionNames
+    }
 }
 
 private actor RecordingTmuxSessionDiscoverer {
