@@ -80,6 +80,7 @@ final class TmuxSessionController: @unchecked Sendable {
         case copyMode
         case setClientSize
         case sendInput
+        case setPaneOption
     }
 
     enum SplitDirection: Sendable {
@@ -169,6 +170,7 @@ final class TmuxSessionController: @unchecked Sendable {
         var onActivePaneChanged: @Sendable (TmuxPaneID) -> Void = { _ in }
         var onPaneSurfaceFailed: @Sendable (TmuxPaneID) -> Void = { _ in }
         var onRequestFailed: @Sendable (Request) -> Void = { _ in }
+        var onPaneAgentMetadata: @Sendable ([TmuxPaneID: TmuxPaneAgentInfo]) -> Void = { _ in }
     }
 
     /// Pointer values cross actor boundaries only as opaque native identities.
@@ -206,6 +208,7 @@ final class TmuxSessionController: @unchecked Sendable {
         case paneCurrentDirectory(
             @Sendable (Result<String, PaneCurrentDirectoryError>) -> Void
         )
+        case paneAgentMetadataPoll
         case trackedInput(@Sendable (Bool) -> Void)
     }
 
@@ -311,6 +314,7 @@ final class TmuxSessionController: @unchecked Sendable {
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
             failOutstandingTrackedInput()
+            forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
             deferredWindowZoomIntent = nil
             successfulMutationRequiredAfterRevision = nil
@@ -330,6 +334,7 @@ final class TmuxSessionController: @unchecked Sendable {
             guard !shuttingDown else { return }
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
             failOutstandingTrackedInput()
+            forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
             deferredWindowZoomIntent = nil
             successfulMutationRequiredAfterRevision = nil
@@ -428,6 +433,7 @@ final class TmuxSessionController: @unchecked Sendable {
         case GHOSTTY_TMUX_ACTION_EXIT:
             failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
             failOutstandingTrackedInput()
+            forgetOutstandingPaneAgentMetadataPolls()
             deferredNavigationIntent = nil
             deferredWindowZoomIntent = nil
             successfulMutationRequiredAfterRevision = nil
@@ -560,6 +566,9 @@ final class TmuxSessionController: @unchecked Sendable {
             return
         case .paneCurrentDirectory(let completionHandler):
             completionHandler(paneCurrentDirectoryResult(for: completion))
+            return
+        case .paneAgentMetadataPoll:
+            handlePaneAgentMetadataPollCompletion(completion)
             return
         case .action(let request, let topologyRevisionAtSubmission, let onSuccess):
             handleActionCompletion(
@@ -905,6 +914,44 @@ final class TmuxSessionController: @unchecked Sendable {
         }
     }
 
+    /// Polls the pane-mark user options (@ai_blocked and friends) for every
+    /// pane in the attached session. A failed or skipped poll is silent: the
+    /// next scheduled poll retries. At most one poll is outstanding so a slow
+    /// server cannot queue unbounded list-panes work.
+    func requestPaneAgentMetadataPoll() {
+        queue.async { [self] in
+            preconditionOnWriterQueue()
+            guard let client, outboundSink != nil, !shuttingDown else { return }
+            guard !hasOutstandingPaneAgentMetadataPoll else { return }
+            let (result, token) = enqueueCommandTokenOnWriter(
+                TmuxPaneAgentMetadata.listPanesCommand,
+                client: client
+            )
+            guard result == GHOSTTY_TMUX_RESULT_OK else {
+                if result == GHOSTTY_TMUX_RESULT_CLIENT_FAILED
+                    || result == GHOSTTY_TMUX_RESULT_CLOSED {
+                    handleClientFailure(result)
+                }
+                return
+            }
+            requestsByToken[token] = .paneAgentMetadataPoll
+            _ = drainOutbound()
+        }
+    }
+
+    /// Mirror of the dotfiles' after-select-pane hook: viewing a pane clears
+    /// its unseen mark server-side. Fire-and-forget; a pane without the mark
+    /// (or a server without the option) answers success regardless.
+    func requestClearPaneUnseenMark(paneID: TmuxPaneID) {
+        queue.async { [self] in
+            enqueueOnWriter(
+                command: "set-option -p -u -t %\(paneID.rawValue) @ai_unseen",
+                request: .setPaneOption,
+                onSuccess: nil
+            )
+        }
+    }
+
     func reclaimActiveViewport() {
         queue.async { [self] in
             guard admitActiveViewportClaim(force: true) else { return }
@@ -1237,6 +1284,13 @@ final class TmuxSessionController: @unchecked Sendable {
         }
     }
 
+    private var hasOutstandingPaneAgentMetadataPoll: Bool {
+        requestsByToken.values.contains {
+            guard case .paneAgentMetadataPoll = $0 else { return false }
+            return true
+        }
+    }
+
     private var activeViewportMatchesClientSize: Bool {
         guard let clientSize,
               let topology,
@@ -1254,12 +1308,20 @@ final class TmuxSessionController: @unchecked Sendable {
             || successfulMutationRequiredAfterRevision != nil
     }
 
+    private func forgetOutstandingPaneAgentMetadataPolls() {
+        preconditionOnWriterQueue()
+        requestsByToken = requestsByToken.filter {
+            guard case .paneAgentMetadataPoll = $0.value else { return true }
+            return false
+        }
+    }
+
     private func requestMutatesTopology(_ request: Request) -> Bool {
         switch request {
         case .newWindow, .splitPane, .closePane, .closeWindow,
              .selectWindow, .selectPane, .zoomPane:
             true
-        case .copyMode, .setClientSize, .sendInput:
+        case .copyMode, .setClientSize, .sendInput, .setPaneOption:
             false
         }
     }
@@ -1510,6 +1572,7 @@ final class TmuxSessionController: @unchecked Sendable {
         guard !shuttingDown else { return }
         failOutstandingPaneDirectoryQueries(with: .sessionUnavailable)
         failOutstandingTrackedInput()
+        forgetOutstandingPaneAgentMetadataPolls()
         deferredNavigationIntent = nil
         deferredWindowZoomIntent = nil
         successfulMutationRequiredAfterRevision = nil
@@ -1537,6 +1600,17 @@ final class TmuxSessionController: @unchecked Sendable {
 
     private func reportRequestFailure(_ request: Request) {
         DispatchQueue.main.async { self.callbacks.onRequestFailed(request) }
+    }
+
+    private func handlePaneAgentMetadataPollCompletion(
+        _ completion: ghostty_tmux_command_completion_s
+    ) {
+        preconditionOnWriterQueue()
+        guard completion.status == GHOSTTY_TMUX_COMMAND_SUCCESS else { return }
+        let infos = TmuxPaneAgentMetadata.parseListPanesBody(
+            decodeTmuxString(completion.body)
+        )
+        DispatchQueue.main.async { self.callbacks.onPaneAgentMetadata(infos) }
     }
 
     private func paneCurrentDirectoryResult(

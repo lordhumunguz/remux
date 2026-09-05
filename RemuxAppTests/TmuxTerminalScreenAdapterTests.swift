@@ -424,6 +424,62 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testPaneAgentMetadataFlowsIntoTopologyCardProjection() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "agent-state-test",
+            windows: [
+                TmuxSessionController.WindowInfo(
+                    id: 1,
+                    name: "agents",
+                    active: true,
+                    zoomed: false,
+                    width: 80,
+                    height: 24,
+                    activePaneID: 10
+                )
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, width: 39, currentCommand: "claude"),
+                pane(id: 11, windowID: 1, x: 40, width: 40, currentCommand: "zsh"),
+            ],
+            activeWindowID: 1
+        ))
+        session.handlePaneAgentMetadataForTesting([
+            10: TmuxPaneAgentInfo(
+                state: .blocked,
+                gitBranch: "feature/agent-state",
+                gitRepo: "remux",
+                agentModel: "claude-opus-4.1"
+            ),
+            11: TmuxPaneAgentInfo(state: .working, gitBranch: "main"),
+        ])
+
+        let windowID = try XCTUnwrap(
+            adapter.windowSelectionSheetRenderProjection().selectedWindowID
+        )
+        let picker = adapter.paneSelectionSheetRenderProjection(topLevelID: windowID)
+
+        XCTAssertEqual(picker.panes.map(\.agentInfo.state), [.blocked, .working])
+        XCTAssertEqual(picker.panes[0].agentInfo.gitBranch, "feature/agent-state")
+        XCTAssertEqual(picker.panes[0].agentInfo.gitRepo, "remux")
+        XCTAssertEqual(picker.panes[0].agentInfo.agentModel, "claude-opus-4.1")
+        XCTAssertEqual(picker.panes[1].agentInfo.gitBranch, "main")
+
+        let viewport = adapter.terminalScreenPresentationProjection.viewport
+        XCTAssertEqual(viewport.panes.map(\.agentInfo.state), [.blocked, .working])
+
+        await session.shutdown()
+    }
+
     func testWindowProjectionReflectsEmittedTopologyImmediately() async throws {
         let runtime = try GhosttyKitRuntime()
         let session = makeSession(runtime: runtime)

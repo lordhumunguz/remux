@@ -5,6 +5,7 @@ struct ActiveSessionSwitcherItem: Identifiable, Equatable {
     let sessionName: String
     let serverName: String
     let runtimeState: TerminalRuntimeState
+    let agentState: TmuxPaneAgentState
     let isSelected: Bool
 }
 
@@ -53,13 +54,14 @@ struct SessionSwitcherProjection: Equatable {
         selectedSessionID: SavedWorkspace.ID?
     ) {
         self.activeSessions = RemuxActiveSessionCollection
-            .sortedForDisplay(activeSessions)
+            .sortedForDisplayByAgentState(activeSessions)
             .map { session in
                 ActiveSessionSwitcherItem(
                     id: session.id,
                     sessionName: session.target.workspace.sessionName,
                     serverName: session.target.server.displayName,
                     runtimeState: session.runtimeState,
+                    agentState: session.agentState,
                     isSelected: session.id == selectedSessionID
                 )
             }
@@ -581,6 +583,14 @@ private struct ActiveSessionSwitcherRow: View {
 
             Spacer(minLength: 8)
 
+            if session.agentState != .idle {
+                TmuxAgentStateBadge(
+                    state: session.agentState,
+                    font: .system(size: 14, weight: .bold)
+                )
+                .accessibilityHidden(true)
+            }
+
             if session.isSelected {
                 Image(systemName: "checkmark")
                     .font(.body.weight(.semibold))
@@ -598,7 +608,9 @@ private struct ActiveSessionSwitcherRow: View {
     private var accessibilityLabel: String {
         let status = TerminalRuntimeStatusPresentation.projection(for: session.runtimeState).label
         let current = session.isSelected ? ", current session" : ""
-        return "\(session.sessionName), \(session.serverName), \(status)\(current)"
+        let agent = TmuxAgentStateBadge.accessibilityLabel(for: session.agentState)
+            .map { ", \($0)" } ?? ""
+        return "\(session.sessionName), \(session.serverName), \(status)\(agent)\(current)"
     }
 }
 

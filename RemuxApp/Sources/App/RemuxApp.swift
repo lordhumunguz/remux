@@ -1,5 +1,6 @@
 import GhosttyKit
 import SwiftUI
+import UserNotifications
 
 enum GhosttyKitBuildModePolicy {
     static func releaseValidationFailure(for mode: ghostty_build_mode_e) -> String? {
@@ -34,6 +35,7 @@ struct RemuxApp: App {
             fatalError(failure)
         }
         #endif
+        UNUserNotificationCenter.current().delegate = RemuxUserNotificationDelegate.shared
     }
 
     var body: some Scene {

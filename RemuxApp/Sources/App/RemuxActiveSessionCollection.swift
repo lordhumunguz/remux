@@ -22,6 +22,24 @@ enum RemuxActiveSessionCollection {
         }
     }
 
+    /// Display order with agent-state urgency applied on top: sessions with a
+    /// blocked pane first, then unseen updates, then working, then idle. The
+    /// pane-mark protocol carries no "blocked since" timestamp, so sessions
+    /// within one urgency group keep the canonical display order.
+    static func sortedForDisplayByAgentState(
+        _ activeSessions: [ActiveTerminalSession]
+    ) -> [ActiveTerminalSession] {
+        sortedForDisplay(activeSessions)
+            .enumerated()
+            .sorted { lhs, rhs in
+                let lhsRank = lhs.element.agentState.sessionSortRank
+                let rhsRank = rhs.element.agentState.sessionSortRank
+                if lhsRank != rhsRank { return lhsRank < rhsRank }
+                return lhs.offset < rhs.offset
+            }
+            .map(\.element)
+    }
+
     static func containsWorkspace(
         _ workspaceID: SavedWorkspace.ID,
         in activeSessions: [ActiveTerminalSession]

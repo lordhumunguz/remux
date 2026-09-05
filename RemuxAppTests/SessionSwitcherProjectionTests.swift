@@ -240,6 +240,60 @@ final class SessionSwitcherProjectionTests: XCTestCase {
         XCTAssertEqual(ordered.map(\.id), [staging.id, macMini.id, production.id])
     }
 
+    func testActiveSessionsSortByAgentUrgencyThenCanonicalOrder() {
+        let server = makeServer(name: "Production")
+        let idleNewest = makeWorkspace(
+            server: server,
+            name: "idle-newest",
+            lastOpenedAt: Date(timeIntervalSince1970: 400)
+        )
+        let blockedOldest = makeWorkspace(
+            server: server,
+            name: "blocked-oldest",
+            lastOpenedAt: Date(timeIntervalSince1970: 100)
+        )
+        let unseen = makeWorkspace(
+            server: server,
+            name: "unseen",
+            lastOpenedAt: Date(timeIntervalSince1970: 300)
+        )
+        let working = makeWorkspace(
+            server: server,
+            name: "working",
+            lastOpenedAt: Date(timeIntervalSince1970: 200)
+        )
+        let blockedNewer = makeWorkspace(
+            server: server,
+            name: "blocked-newer",
+            lastOpenedAt: Date(timeIntervalSince1970: 250)
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(
+                servers: [server],
+                workspaces: [idleNewest, blockedOldest, unseen, working, blockedNewer]
+            ),
+            activeSessions: [
+                makeSession(server: server, workspace: idleNewest, agentState: .idle),
+                makeSession(server: server, workspace: blockedOldest, agentState: .blocked),
+                makeSession(server: server, workspace: unseen, agentState: .unseen),
+                makeSession(server: server, workspace: working, agentState: .working),
+                makeSession(server: server, workspace: blockedNewer, agentState: .blocked),
+            ],
+            selectedSessionID: nil
+        )
+
+        XCTAssertEqual(
+            projection.activeSessions.map(\.id),
+            [blockedNewer.id, blockedOldest.id, unseen.id, working.id, idleNewest.id],
+            "blocked first, then unseen, then working, then idle; canonical order within a group"
+        )
+        XCTAssertEqual(
+            projection.activeSessions.map(\.agentState),
+            [.blocked, .blocked, .unseen, .working, .idle]
+        )
+    }
+
     private func snapshot(
         servers: [SavedServer],
         workspaces: [SavedWorkspace]
@@ -261,7 +315,8 @@ final class SessionSwitcherProjectionTests: XCTestCase {
 
     private func makeSession(
         server: SavedServer,
-        workspace: SavedWorkspace
+        workspace: SavedWorkspace,
+        agentState: TmuxPaneAgentState = .idle
     ) -> ActiveTerminalSession {
         let auth = ResolvedSSHAuth.password(
             username: server.username,
@@ -275,7 +330,8 @@ final class SessionSwitcherProjectionTests: XCTestCase {
                 workspace: workspace,
                 sshAuth: auth
             ),
-            runtimeState: .connected
+            runtimeState: .connected,
+            agentState: agentState
         )
     }
 
