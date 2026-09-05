@@ -932,6 +932,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1430;
 				TargetAttributes = {
+					7125659F6728FEF22F3FDFB5 = {
+						DevelopmentTeam = KUASJDH44X;
+						ProvisioningStyle = Automatic;
+					};
 					AB8207F2544D6BF9946D8F01 = {
 						TestTargetID = 7125659F6728FEF22F3FDFB5;
 					};
@@ -1269,7 +1273,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.appUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personalUITests;
 				PRODUCT_MODULE_NAME = RemuxUITests;
 				PRODUCT_NAME = RemuxUITests;
 				SDKROOT = iphoneos;
@@ -1339,7 +1343,7 @@
 				OTHER_LDFLAGS = (
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.app;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personal;
 				PRODUCT_NAME = Remux;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
@@ -1365,7 +1369,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.appTests;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personalTests;
 				PRODUCT_MODULE_NAME = RemuxTests;
 				PRODUCT_NAME = RemuxTests;
 				SDKROOT = iphoneos;
@@ -1389,7 +1393,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.appTests;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personalTests;
 				PRODUCT_MODULE_NAME = RemuxTests;
 				PRODUCT_NAME = RemuxTests;
 				SDKROOT = iphoneos;
@@ -1452,7 +1456,7 @@
 				OTHER_LDFLAGS = (
 					"-lc++",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.app;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personal;
 				PRODUCT_NAME = Remux;
 				SDKROOT = iphoneos;
 				SUPPORTS_MACCATALYST = NO;
@@ -1468,6 +1472,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = Remux;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KUASJDH44X;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"../ghostty-remux-upstream-rebuild/macos\"",
@@ -1495,7 +1501,7 @@
 					"@executable_path/Frameworks",
 					"@loader_path/Frameworks",
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.appUITests;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.remux.personalUITests;
 				PRODUCT_MODULE_NAME = RemuxUITests;
 				PRODUCT_NAME = RemuxUITests;
 				SDKROOT = iphoneos;
@@ -1509,6 +1515,8 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = Remux;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = KUASJDH44X;
 				FRAMEWORK_SEARCH_PATHS = (
 					"$(inherited)",
 					"\"../ghostty-remux-upstream-rebuild/macos\"",
