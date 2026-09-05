@@ -4,6 +4,10 @@ This file exists only on the fork's `main` (github.com/lordhumunguz/remux,
 remote `personal`). It tracks the personalization delta against upstream
 (github.com/h3nock/remux, remote `origin`) and how to keep it healthy.
 
+This fork is for personal consumption only. Nothing here is ever PR'd back
+to upstream; upstream is just a code feed. Every maintenance decision below
+optimizes for exactly one thing: cheap, safe syncs.
+
 ## Topology
 
 - `origin`: upstream h3nock/remux. Treat as read-only.
@@ -53,19 +57,18 @@ conventions from ~/.dotfiles (pane options like `@ai_blocked`, the
 `client-attached detach-client` hook, `@responsive_accordion`). On servers
 without those dotfiles every feature degrades to upstream behavior.
 
-## Upstream candidates
-
-Generic fixes worth PRing back to h3nock/remux so the fork stops carrying
-them: opencode resume command, unknown-theme settings decode fallback, bare
-`%exit` classification hardening, agent-metadata poll dedup, import failure
-handling. The pane-mark protocol, snippets, fleet import, and Tokyo Night
-default are personal and stay.
-
 ## Rules
 
+- Never open PRs or issues against h3nock/remux. Never push to `origin`.
+  Upstream fixes we make locally stay local; if upstream independently fixes
+  the same thing later, the sync conflict resolves in their favor.
 - New personalization work goes on short-lived topic branches off the fork's
   `main`, never off upstream.
 - If upstream lands an overlapping feature, adopt theirs and drop the local
-  hook. The goal is the smallest delta, not the most features.
+  hook. The goal is the smallest delta, not the most features. That rule
+  exists to shrink merge conflicts, not to be a good citizen.
+- Because nothing goes upstream, personal convenience beats upstream
+  conventions: keep the fork's own bundle ID, signing, and build numbering,
+  and don't contort a change to be "upstreamable".
 - After each sync, run the focused tests for the areas the sync touched, not
   the whole suite.
