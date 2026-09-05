@@ -4,6 +4,11 @@ set -euo pipefail
 # Archives Remux for App Store Connect and exports an .ipa ready for
 # TestFlight upload. Pass --upload to send it to App Store Connect through
 # the Apple ID signed into Xcode.
+#
+# Fork note: the team ID defaults to the personal team. Upstream's team is
+# T37P2TW58H; pass REMUX_TEAM_ID to override.
+
+team_id="${REMUX_TEAM_ID:-KUASJDH44X}"
 
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_root"
@@ -35,7 +40,7 @@ cat >"$export_options" <<PLIST
 	<key>destination</key>
 	<string>${destination}</string>
 	<key>teamID</key>
-	<string>T37P2TW58H</string>
+	<string>${team_id}</string>
 </dict>
 </plist>
 PLIST
@@ -49,7 +54,7 @@ xcodebuild archive \
   -destination 'generic/platform=iOS' \
   -archivePath "$archive_path" \
   -allowProvisioningUpdates \
-  DEVELOPMENT_TEAM=T37P2TW58H
+  DEVELOPMENT_TEAM="$team_id"
 
 xcodebuild -exportArchive \
   -archivePath "$archive_path" \
