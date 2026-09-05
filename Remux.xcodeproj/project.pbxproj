@@ -113,21 +113,21 @@
 		71929CA0D4AE6FC5FA464C4B /* TerminalPreviewFileLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7C60C2A339E149300CA7177 /* TerminalPreviewFileLoader.swift */; };
 		71CC1415715E9ECCD4C80EA2 /* GhosttyTerminalPresentationProjectorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4671F22C07201C31912267E9 /* GhosttyTerminalPresentationProjectorTests.swift */; };
 		71F19B3C954665ECD2B7D727 /* GhosttyPendingAttachment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 054929B68D4D41AF41FF0D8D /* GhosttyPendingAttachment.swift */; };
-		7235AB09BF8687F462B082C2 /* SSHConfigFileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC5C7D4F0D42AB2AAD54C22D /* SSHConfigFileParser.swift */; };
 		721D7B23B74FEC3B37CBA32C /* AgentIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0AC94B7B39AC7D204E658FE5 /* AgentIdentity.swift */; };
+		7235AB09BF8687F462B082C2 /* SSHConfigFileParser.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC5C7D4F0D42AB2AAD54C22D /* SSHConfigFileParser.swift */; };
 		741FB3FF07D31DBC40E07F6D /* GhosttyFlowTraceStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = BF6CD3A6EEDAD871DB47B5CF /* GhosttyFlowTraceStoreTests.swift */; };
 		756630E292FD6FE5DA82F830 /* GhosttyPendingAttachmentTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71B734F55FC22090646AD0D2 /* GhosttyPendingAttachmentTests.swift */; };
 		7586AAB0E733735D89B19DC6 /* GhosttyAttachmentPasteboardSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9CCA4A17BA5BEB5643174E99 /* GhosttyAttachmentPasteboardSnapshot.swift */; };
 		7726730DFA9B5E99BF5686EA /* GhosttyKeyboardChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96F24A0810E927B327E82D59 /* GhosttyKeyboardChrome.swift */; };
 		77F42C4A7D6B2327955411D4 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 693A617C3861CAF780D14828 /* Assets.xcassets */; };
-		7B784B308E2C27B5A6014A89 /* ServerImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692C348E950D81C6FC57EA4F /* ServerImportSheet.swift */; };
 		787D6D1F8B11B38810A25B9A /* TmuxPaneAgentStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = FB474BFB56EEBAB807C7E11B /* TmuxPaneAgentStateTests.swift */; };
+		7B784B308E2C27B5A6014A89 /* ServerImportSheet.swift in Sources */ = {isa = PBXBuildFile; fileRef = 692C348E950D81C6FC57EA4F /* ServerImportSheet.swift */; };
 		7C99EDFDCE3B0927D26C1029 /* GhosttyAttachmentPasteboardSnapshotTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 84DD89E37AC083383B988185 /* GhosttyAttachmentPasteboardSnapshotTests.swift */; };
 		7D189D2913DE26268E6DA960 /* TmuxSeatContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2F6E8F0B02314AF2E32F1515 /* TmuxSeatContractTests.swift */; };
 		7D737693581BDF76436D61D9 /* GhosttyTerminalDisconnectReasonClassifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 99082CEC90EA6D04B5BE5874 /* GhosttyTerminalDisconnectReasonClassifier.swift */; };
 		7FB696D68436C55D304387E4 /* TmuxTerminalScreenAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = D507C4F64535720BC9A3F665 /* TmuxTerminalScreenAdapter.swift */; };
-		827973F181445C3C2CE6D89C /* ServerImportLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDA0E10DC91988C4043C1D3 /* ServerImportLoader.swift */; };
 		81FB09FEA24A77699C6CC273 /* TmuxSeatContract.swift in Sources */ = {isa = PBXBuildFile; fileRef = 064E87E828AFC571AD112E3D /* TmuxSeatContract.swift */; };
+		827973F181445C3C2CE6D89C /* ServerImportLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = EFDA0E10DC91988C4043C1D3 /* ServerImportLoader.swift */; };
 		83FFCAB9CE810A04E71EBB2D /* TmuxSeatOccupancyProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = F9DAD3EE060A7759DA73963E /* TmuxSeatOccupancyProbe.swift */; };
 		842E6402F6F631B4DB19B8DE /* GhosttyTerminalResponderTextInputShim.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25DBECAA1C7625528DD0831B /* GhosttyTerminalResponderTextInputShim.swift */; };
 		8538B4599CD88CEC07452142 /* GhosttyKitRuntime.swift in Sources */ = {isa = PBXBuildFile; fileRef = FF11321286DB9076CB3FA983 /* GhosttyKitRuntime.swift */; };
@@ -767,10 +767,10 @@
 		D9A30ED1878BFD3CD31E92C7 /* Domain */ = {
 			isa = PBXGroup;
 			children = (
-				4622ECFCC5B752A28F7CCD4B /* ServerImportPlanner.swift */,
 				0AC94B7B39AC7D204E658FE5 /* AgentIdentity.swift */,
 				1504F0CC92222F68B417944B /* AgentPromptSnippets.swift */,
 				1F01B4351E68B3CC27E3CF3D /* RemuxProjectGrouping.swift */,
+				4622ECFCC5B752A28F7CCD4B /* ServerImportPlanner.swift */,
 				5EFEF4C2C61B013DA831F7D9 /* Shortcut.swift */,
 				EC5C7D4F0D42AB2AAD54C22D /* SSHConfigFileParser.swift */,
 				820136FA2586D2054D312C3D /* SSHPrivateKeyInspector.swift */,
