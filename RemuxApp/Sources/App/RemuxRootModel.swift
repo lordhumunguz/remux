@@ -1573,6 +1573,27 @@ final class RemuxRootModel: ObservableObject {
         terminalScreenModels[TerminalRuntimeAttemptKey(session: session)] != nil
     }
 
+    /// Canonical project context per active session, derived from pane
+    /// directory metadata the sessions already fetch. Sessions without
+    /// topology metadata yet are simply absent, so callers fall back to
+    /// ungrouped display.
+    func sessionProjectContexts() -> [SavedWorkspace.ID: RemuxProjectGrouping.Context] {
+        var panePathsBySession: [SavedWorkspace.ID: RemuxProjectGrouping.PanePaths] = [:]
+        var allPaths: [String] = []
+        for session in activeSessions {
+            let key = TerminalRuntimeAttemptKey(session: session)
+            guard let paths = terminalScreenModels[key]?
+                .terminalScreenAdapter.projectGroupingPanePaths else { continue }
+            panePathsBySession[session.id] = paths
+            allPaths.append(contentsOf: paths.allPaths)
+        }
+        guard !panePathsBySession.isEmpty else { return [:] }
+        let knownProjects = RemuxProjectGrouping.observedProjects(paths: allPaths)
+        return panePathsBySession.compactMapValues { paths in
+            RemuxProjectGrouping.sessionContext(paths, knownProjects: knownProjects)
+        }
+    }
+
     private func closePreparedTransport(for workspaceID: SavedWorkspace.ID) {
         preparedTransportCoordinator.remove(workspaceID: workspaceID)
     }

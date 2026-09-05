@@ -165,7 +165,8 @@ private struct RemuxWorkspaceShell: View {
                     snapshot: model.library,
                     activeSessions: model.activeSessions,
                     discoveryStates: model.tmuxSessionDiscoveryStates,
-                    selectedSessionID: selectedTerminalID
+                    selectedSessionID: selectedTerminalID,
+                    projectContexts: model.sessionProjectContexts()
                 ),
                 servers: model.library.servers,
                 currentServerID: selectedActiveSession?.target.server.id,

@@ -215,6 +215,20 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         return paneID
     }
 
+    /// Pane directory metadata for project grouping: the focused pane's
+    /// path plus every pane path in the latest topology. nil until the
+    /// first topology arrives, so grouping falls back to raw names.
+    var projectGroupingPanePaths: RemuxProjectGrouping.PanePaths? {
+        guard let topology = latestTopology else { return nil }
+        let focusedPath = effectiveFocusedPaneID.flatMap { paneID in
+            topology.panes.first { $0.id == paneID }?.currentPath
+        }
+        return RemuxProjectGrouping.PanePaths(
+            focusedPath: focusedPath?.isEmpty == false ? focusedPath : nil,
+            allPaths: topology.panes.map(\.currentPath).filter { !$0.isEmpty }
+        )
+    }
+
     // MARK: Topology synthesis
 
     private static var emptyTopologySnapshot: GhosttyRuntimeSurfaceTopologySnapshot {
