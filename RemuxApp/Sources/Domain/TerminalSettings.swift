@@ -4,6 +4,7 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
     case ghosttyDefault
     case remuxDark
     case remuxLight
+    case tokyoNight
 
     var id: String { rawValue }
 
@@ -15,6 +16,8 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
             "Catppuccin Mocha"
         case .remuxLight:
             "Catppuccin Latte"
+        case .tokyoNight:
+            "Tokyo Night"
         }
     }
 
@@ -26,6 +29,8 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
             "Mocha"
         case .remuxLight:
             "Latte"
+        case .tokyoNight:
+            "Tokyo"
         }
     }
 
@@ -91,6 +96,35 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
                 "selection-foreground = #4c4f69",
                 "split-divider-color = #ccd0da",
             ]
+        case .tokyoNight:
+            [
+                // Tokyo Night ("night" variant). Kept inline like the other
+                // bundled palettes so config updates don't depend on theme
+                // resource lookup in the embedded runtime.
+                "palette = 0=#15161e",
+                "palette = 1=#f7768e",
+                "palette = 2=#9ece6a",
+                "palette = 3=#e0af68",
+                "palette = 4=#7aa2f7",
+                "palette = 5=#bb9af7",
+                "palette = 6=#7dcfff",
+                "palette = 7=#a9b1d6",
+                "palette = 8=#414868",
+                "palette = 9=#f7768e",
+                "palette = 10=#9ece6a",
+                "palette = 11=#e0af68",
+                "palette = 12=#7aa2f7",
+                "palette = 13=#bb9af7",
+                "palette = 14=#7dcfff",
+                "palette = 15=#c0caf5",
+                "background = #1a1b26",
+                "foreground = #c0caf5",
+                "cursor-color = #c0caf5",
+                "cursor-text = #1a1b26",
+                "selection-background = #33467c",
+                "selection-foreground = #c0caf5",
+                "split-divider-color = #24283b",
+            ]
         }
     }
 
@@ -107,6 +141,8 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
             0x1E1E2E
         case .remuxLight:
             0xEFF1F5
+        case .tokyoNight:
+            0x1A1B26
         }
     }
 
@@ -121,6 +157,8 @@ enum TerminalTheme: String, CaseIterable, Codable, Identifiable, Sendable {
             0x3E3F52
         case .remuxLight:
             0xD2D4DC
+        case .tokyoNight:
+            0x3B4261
         }
     }
 }
@@ -143,16 +181,25 @@ struct TerminalSettings: Equatable, Codable, Sendable {
     /// or this global preference changes.
     var zoomMultipaneWindowsByDefault: Bool
 
+    /// When enabled, a hardware keyboard's Option key acts as Alt/Meta, sending
+    /// an ESC prefix (like desktop Ghostty's `macos-option-as-alt`) instead of
+    /// the Option-composed character. Applies to hardware keyboards only; the
+    /// iOS software keyboard has no Option concept.
+    /// Defaults to `true` when absent from persisted settings.
+    var optionAsAlt: Bool
+
     init(
         fontSize: Float32?,
         theme: TerminalTheme,
         allowInsecureRSAHostKeys: Bool = false,
-        zoomMultipaneWindowsByDefault: Bool = false
+        zoomMultipaneWindowsByDefault: Bool = false,
+        optionAsAlt: Bool = true
     ) {
         self.fontSize = Self.normalizedFontSize(fontSize)
         self.theme = theme
         self.allowInsecureRSAHostKeys = allowInsecureRSAHostKeys
         self.zoomMultipaneWindowsByDefault = zoomMultipaneWindowsByDefault
+        self.optionAsAlt = optionAsAlt
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -160,6 +207,7 @@ struct TerminalSettings: Equatable, Codable, Sendable {
         case theme
         case allowInsecureRSAHostKeys
         case zoomMultipaneWindowsByDefault
+        case optionAsAlt
     }
 
     // Custom decoding keeps older persisted settings (written before these keys
@@ -173,7 +221,8 @@ struct TerminalSettings: Equatable, Codable, Sendable {
             zoomMultipaneWindowsByDefault: try container.decodeIfPresent(
                 Bool.self,
                 forKey: .zoomMultipaneWindowsByDefault
-            ) ?? decoder.userInfo[.terminalSettingsDefaultMultipaneZoom] as? Bool ?? false
+            ) ?? decoder.userInfo[.terminalSettingsDefaultMultipaneZoom] as? Bool ?? false,
+            optionAsAlt: try container.decodeIfPresent(Bool.self, forKey: .optionAsAlt) ?? true
         )
     }
 

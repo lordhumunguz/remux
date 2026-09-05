@@ -625,7 +625,8 @@ final class TmuxPaneSurface {
         guard lifecycle == .active,
               framePublicationWait == nil,
               presentationTask == nil,
-              columns > 0, rows > 0,
+              PanePreviewLayout.shouldCapturePanePreview(columns: columns),
+              rows > 0,
               let renderer,
               let rendererLayer = GhosttyIOSurfaceFrame.rendererLayer(in: view.layer)
         else { return nil }

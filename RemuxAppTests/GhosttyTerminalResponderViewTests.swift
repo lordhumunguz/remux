@@ -494,6 +494,88 @@ final class GhosttyTerminalResponderViewTests: XCTestCase {
         )
     }
 
+    func testHardwarePressResolutionOptionAsAltSendsEscapePrefixedUnmodifiedCharacter() {
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardG,
+                modifiers: .alternate,
+                characters: "©",
+                charactersIgnoringModifiers: "g",
+                optionAsAlt: true
+            ),
+            .text("\u{1B}g")
+        )
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboard1,
+                modifiers: .alternate,
+                characters: "¡",
+                charactersIgnoringModifiers: "1",
+                optionAsAlt: true
+            ),
+            .text("\u{1B}1")
+        )
+    }
+
+    func testHardwarePressResolutionWithoutOptionAsAltKeepsComposedCharacters() {
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardG,
+                modifiers: .alternate,
+                characters: "©",
+                charactersIgnoringModifiers: "g",
+                optionAsAlt: false
+            ),
+            .text("©")
+        )
+    }
+
+    func testHardwarePressResolutionOptionAsAltYieldsToCommandAndControl() {
+        XCTAssertNil(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardG,
+                modifiers: [.alternate, .command],
+                characters: "©",
+                charactersIgnoringModifiers: "g",
+                optionAsAlt: true
+            )
+        )
+        XCTAssertNil(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardG,
+                modifiers: [.alternate, .control],
+                characters: "©",
+                charactersIgnoringModifiers: "g",
+                optionAsAlt: true
+            )
+        )
+    }
+
+    func testHardwarePressResolutionOptionAsAltKeepsMappedKeysAsKeyEvents() {
+        XCTAssertEqual(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardLeftArrow,
+                modifiers: .alternate,
+                characters: "",
+                charactersIgnoringModifiers: "",
+                optionAsAlt: true
+            ),
+            .keyEvent(.init(keyCode: .arrowLeft, mods: [.alt]))
+        )
+    }
+
+    func testHardwarePressResolutionOptionAsAltRequiresUnmodifiedCharacters() {
+        XCTAssertNil(
+            GhosttyTerminalHardwareCommandMapping.resolveHardwarePress(
+                keyCode: .keyboardG,
+                modifiers: .alternate,
+                characters: "",
+                charactersIgnoringModifiers: nil,
+                optionAsAlt: true
+            )
+        )
+    }
+
     func testTerminalInputNormalizerMapsLinefeedToCarriageReturn() {
         XCTAssertEqual(
             GhosttyTerminalInputNormalizer.normalize("echo hello\n"),

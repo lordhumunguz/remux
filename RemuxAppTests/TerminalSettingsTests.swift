@@ -121,6 +121,62 @@ final class TerminalSettingsTests: XCTestCase {
         XCTAssertEqual(TerminalTheme.remuxLight.displayName, "Catppuccin Latte")
         XCTAssertEqual(TerminalTheme.remuxDark.pickerTitle, "Mocha")
         XCTAssertEqual(TerminalTheme.remuxLight.pickerTitle, "Latte")
+        XCTAssertEqual(TerminalTheme.tokyoNight.displayName, "Tokyo Night")
+        XCTAssertEqual(TerminalTheme.tokyoNight.pickerTitle, "Tokyo")
+    }
+
+    func testGhosttyConfigIncludesTokyoNightTheme() {
+        let settings = TerminalSettings(fontSize: nil, theme: .tokyoNight)
+
+        XCTAssertEqual(
+            settings.ghosttyConfigContents,
+            """
+            palette = 0=#15161e
+            palette = 1=#f7768e
+            palette = 2=#9ece6a
+            palette = 3=#e0af68
+            palette = 4=#7aa2f7
+            palette = 5=#bb9af7
+            palette = 6=#7dcfff
+            palette = 7=#a9b1d6
+            palette = 8=#414868
+            palette = 9=#f7768e
+            palette = 10=#9ece6a
+            palette = 11=#e0af68
+            palette = 12=#7aa2f7
+            palette = 13=#bb9af7
+            palette = 14=#7dcfff
+            palette = 15=#c0caf5
+            background = #1a1b26
+            foreground = #c0caf5
+            cursor-color = #c0caf5
+            cursor-text = #1a1b26
+            selection-background = #33467c
+            selection-foreground = #c0caf5
+            split-divider-color = #24283b
+            """ + "\n"
+        )
+        XCTAssertEqual(TerminalTheme.tokyoNight.terminalBackgroundHex, 0x1A1B26)
+    }
+
+    func testDecodingOlderSettingsDefaultsOptionAsAltToEnabled() throws {
+        let data = Data(#"{"fontSize":16,"theme":"remuxDark"}"#.utf8)
+
+        let settings = try JSONDecoder().decode(TerminalSettings.self, from: data)
+
+        XCTAssertTrue(settings.optionAsAlt)
+    }
+
+    func testOptionAsAltRoundTripsThroughCodable() throws {
+        let settings = TerminalSettings(fontSize: nil, theme: .tokyoNight, optionAsAlt: false)
+
+        let decoded = try JSONDecoder().decode(
+            TerminalSettings.self,
+            from: JSONEncoder().encode(settings)
+        )
+
+        XCTAssertFalse(decoded.optionAsAlt)
+        XCTAssertEqual(decoded.theme, .tokyoNight)
     }
 
     func testExplicitFontSizeOverridesDevicePolicy() {
