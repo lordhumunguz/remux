@@ -1119,13 +1119,13 @@ private struct ConnectionLibraryView: View {
                             serverEditMode = serverEditMode.isEditing ? .inactive : .active
                         }
                     } label: {
-                        Text(serverEditMode.isEditing ? "Done" : "Edit")
+                        Text(serverEditMode.isEditing ? "Done" : "Reorder")
                             .frame(minWidth: 44, minHeight: 44)
                     }
                     .font(.subheadline)
                     .textCase(nil)
                     .tint(LibraryHomePalette.controlAccent)
-                    .accessibilityLabel(serverEditMode.isEditing ? "Done Reordering Servers" : "Edit Server Order")
+                    .accessibilityLabel(serverEditMode.isEditing ? "Done Reordering Servers" : "Reorder Servers")
                     .accessibilityIdentifier("library.servers.edit")
                 }
             }
