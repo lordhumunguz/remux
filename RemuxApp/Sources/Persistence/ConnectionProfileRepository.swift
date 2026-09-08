@@ -45,6 +45,16 @@ struct ConnectionLibrarySnapshot: Equatable, Sendable {
         identities.first(where: { $0.id == id })
     }
 
+    func orderingServers(by ids: [SavedServer.ID]) -> Self {
+        var remaining = Dictionary(uniqueKeysWithValues: servers.map { ($0.id, $0) })
+        let ordered = ids.compactMap { remaining.removeValue(forKey: $0) }
+        return Self(
+            servers: ordered + servers.filter { remaining[$0.id] != nil },
+            workspaces: workspaces,
+            identities: identities
+        )
+    }
+
     func workspaces(for serverID: SavedServer.ID) -> [SavedWorkspace] {
         sortedByLastOpened(workspaces.filter { $0.serverID == serverID })
     }
@@ -79,6 +89,7 @@ protocol ConnectionProfileRepository: Sendable {
     func loadSnapshot() async throws -> ConnectionLibrarySnapshot
     func loadProfile() async throws -> (SavedServer, SavedWorkspace)?
     func saveServer(_ server: SavedServer) async throws
+    func saveServerOrder(_ ids: [SavedServer.ID]) async throws
     func saveWorkspace(_ workspace: SavedWorkspace) async throws
     func saveIdentity(_ identity: SSHIdentity) async throws
     func saveIdentityProfile(
@@ -100,11 +111,13 @@ actor FileBackedConnectionProfileRepository: ConnectionProfileRepository {
     private let serverStore: JSONFileStore<SavedServer>
     private let workspaceStore: JSONFileStore<SavedWorkspace>
     private let identityStore: JSONFileStore<SSHIdentity>
+    private let serverOrderStore: JSONFileStore<SavedServer.ID>
 
     init(rootURL: URL) {
         self.serverStore = JSONFileStore(fileURL: rootURL.appendingPathComponent("servers.json"))
         self.workspaceStore = JSONFileStore(fileURL: rootURL.appendingPathComponent("workspaces.json"))
         self.identityStore = JSONFileStore(fileURL: rootURL.appendingPathComponent("ssh-identities.json"))
+        self.serverOrderStore = JSONFileStore(fileURL: rootURL.appendingPathComponent("server-order.json"))
     }
 
     func loadSnapshot() async throws -> ConnectionLibrarySnapshot {
@@ -113,16 +126,31 @@ actor FileBackedConnectionProfileRepository: ConnectionProfileRepository {
         let identities = try await identityStore.load()
         let serverIDs = Set(servers.map(\.id))
         let validWorkspaces = workspaces.filter { serverIDs.contains($0.serverID) }
+        let order: [SavedServer.ID]
+        do {
+            order = try await serverOrderStore.load()
+        } catch {
+            // Display preferences must not make saved connections unavailable.
+            NSLog("[Remux] Could not load server order; using alphabetical order: %@", error.localizedDescription)
+            order = []
+        }
 
         return ConnectionLibrarySnapshot(
-            servers: servers.sorted { lhs, rhs in
-                lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
-            },
+            servers: order.isEmpty ? servers.sorted { lhs, rhs in
+                let comparison = lhs.displayName.localizedStandardCompare(rhs.displayName)
+                return comparison == .orderedSame
+                    ? lhs.id.uuidString < rhs.id.uuidString
+                    : comparison == .orderedAscending
+            } : servers,
             workspaces: validWorkspaces,
             identities: identities.sorted { lhs, rhs in
                 lhs.name.localizedStandardCompare(rhs.name) == .orderedAscending
             }
-        )
+        ).orderingServers(by: order)
+    }
+
+    func saveServerOrder(_ ids: [SavedServer.ID]) async throws {
+        try await serverOrderStore.save(ids)
     }
 
     func loadProfile() async throws -> (SavedServer, SavedWorkspace)? {
