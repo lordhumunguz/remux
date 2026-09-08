@@ -574,6 +574,7 @@ private struct RemuxWorkspaceShell: View {
                     model.showActiveSession(workspaceID)
                 },
                 onDisconnectActiveSession: model.disconnectActiveSession,
+                onMoveServers: model.moveServers,
                 onDeleteServer: { serverID in
                     Task { await model.deleteServer(serverID) }
                 },
@@ -583,6 +584,15 @@ private struct RemuxWorkspaceShell: View {
             )
         }
         .zIndex(2)
+        .alert("Server Order Couldn’t Be Saved", isPresented: Binding(
+            get: { model.serverOrderSaveFailed },
+            set: { if !$0 { model.dismissServerOrderSaveFailure() } }
+        )) {
+            Button("Retry", action: model.retryServerOrderSave)
+            Button("Cancel", role: .cancel, action: model.dismissServerOrderSaveFailure)
+        } message: {
+            Text("Your order is still shown, but may be lost when you close Remux. Try saving it again.")
+        }
     }
 
     private var terminalSettingsBinding: Binding<TerminalSettings> {
@@ -835,11 +845,13 @@ private struct ConnectionLibraryView: View {
     let onTrustDiscoveryHostKey: (SSHHostKeyTrustChallenge) -> Void
     let onShowActiveSession: (SavedWorkspace.ID) -> Void
     let onDisconnectActiveSession: (SavedWorkspace.ID) -> Void
+    let onMoveServers: (IndexSet, Int) -> Void
     let onDeleteServer: (SavedServer.ID) -> Void
     let onDeleteWorkspace: (SavedWorkspace.ID) -> Void
 
     @State private var showsAllConnectedSessions = false
     @State private var showsAllRecentSessions = false
+    @State private var serverEditMode: EditMode = .inactive
 
     var body: some View {
         let sessionProjection = SessionSwitcherProjection(
@@ -859,6 +871,7 @@ private struct ConnectionLibraryView: View {
                     recentSessionsSection
                 }
                 .listStyle(.insetGrouped)
+                .environment(\.editMode, $serverEditMode)
                 .accessibilityIdentifier("library.list")
             }
         }
@@ -870,6 +883,9 @@ private struct ConnectionLibraryView: View {
             GhosttyKitRuntime.prewarmTerminalRenderer(terminalSettings: terminalSettings)
         }
         .navigationTitle("Remux")
+        .onChange(of: snapshot.servers.count) { _, count in
+            if count < 2 { serverEditMode = .inactive }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -1092,8 +1108,27 @@ private struct ConnectionLibraryView: View {
                 }
                 .libraryHomeListRowSurface()
             }
+            .onMove(perform: onMoveServers)
         } header: {
-            LibraryHomeSectionHeader("Servers")
+            HStack {
+                LibraryHomeSectionHeader("Servers")
+                Spacer()
+                if snapshot.servers.count > 1 {
+                    Button {
+                        withAnimation {
+                            serverEditMode = serverEditMode.isEditing ? .inactive : .active
+                        }
+                    } label: {
+                        Text(serverEditMode.isEditing ? "Done" : "Edit")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .font(.subheadline)
+                    .textCase(nil)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityLabel(serverEditMode.isEditing ? "Done Reordering Servers" : "Edit Server Order")
+                    .accessibilityIdentifier("library.servers.edit")
+                }
+            }
         }
     }
 
