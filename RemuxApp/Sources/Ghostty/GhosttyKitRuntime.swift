@@ -98,6 +98,13 @@ private struct GhosttyTerminalRendererWarmupKey: Hashable {
 }
 
 final class GhosttyKitSurfaceView: UIView {
+    var onWindowAttachmentChange: (() -> Void)?
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onWindowAttachmentChange?()
+    }
+
     override init(frame: CGRect) {
         super.init(frame: frame.isEmpty ? CGRect(x: 0, y: 0, width: 1, height: 1) : frame)
         configure()

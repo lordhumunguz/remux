@@ -171,6 +171,9 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
                 self?.presentCommandFailure(for: request)
             }
             .store(in: &subscriptions)
+        session.$presentationRevision
+            .sink { [weak self] _ in self?.objectWillChange.send() }
+            .store(in: &subscriptions)
         session.$transportFailure
             .sink { [weak self] _ in self?.objectWillChange.send() }
             .store(in: &subscriptions)
@@ -504,7 +507,8 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
             registryDebugSummary: "tmux session stack",
             presentedSurfaceID: activeManagedSurface?.id,
             snapshot: topologySnapshot,
-            viewportProjection: terminalViewportPresentationProjection
+            viewportProjection: terminalViewportPresentationProjection,
+            selectedPanePresentation: session?.presentation(for: effectiveFocusedPaneID) ?? .pending
         )
     }
 
@@ -512,7 +516,8 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         GhosttyTerminalPresentationProjector.terminalInteractionProjection(
             phase: runtimePhase,
             presentedSurfaceID: activeManagedSurface?.id,
-            snapshot: topologySnapshot
+            snapshot: topologySnapshot,
+            selectedPanePresentation: session?.presentation(for: effectiveFocusedPaneID) ?? .pending
         )
     }
 
@@ -573,6 +578,7 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
     private func preflightFocusedInput() -> FocusedTerminalInputSubmissionResult? {
         guard isTransportWritable else { return .transportUnavailable }
         guard focusedManagedSurface != nil else { return .noFocusedSurface }
+        guard session?.presentation(for: effectiveFocusedPaneID) == .ready else { return .surfaceRejected }
         return nil
     }
 

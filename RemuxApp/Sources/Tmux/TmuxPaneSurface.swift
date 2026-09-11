@@ -39,6 +39,81 @@ final class TmuxPaneSurface {
     private var sceneActive = true
     private var lifecycle = Lifecycle.active
     private var rendererFailureReported = false
+    #if DEBUG
+    var suppressReplacementPublicationForTesting = false
+    #endif
+    private var rendererIsAvailable = true
+    private var hasPublishedFrame = false
+    private var presentationFailure: TerminalDisconnectReason?
+    private var firstFrameObservation: NSKeyValueObservation?
+    private var firstFrameDeadline: Task<Void, Never>?
+    var onPresentationChange: (() -> Void)?
+
+    var presentation: TerminalPanePresentation {
+        if let presentationFailure { return .failed(presentationFailure) }
+        guard !isClosing, rendererIsAvailable, renderer != nil,
+              view.window != nil, hasPublishedFrame else { return .pending }
+        return .ready
+    }
+
+    private func observeFirstFrame() {
+        firstFrameObservation = nil
+        hasPublishedFrame = false
+        guard let layer = GhosttyIOSurfaceFrame.rendererLayer(in: view.layer) else { return }
+        let reference = LayerReference(layer)
+        let relay = previewRelay
+        firstFrameObservation = layer.observe(\.contents, options: [.initial, .new]) { _, _ in
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated {
+                    guard let pane = relay.pane, let layer = reference.layer,
+                          GhosttyIOSurfaceFrame.rendererLayer(in: pane.view.layer) === layer
+                    else { return }
+                    pane.recordFirstFrameIfPublished(on: layer)
+                }
+            }
+        }
+    }
+
+    private func recordFirstFrameIfPublished(on layer: CALayer) {
+        guard !hasPublishedFrame, presented, sceneActive,
+              let dimensions = GhosttyIOSurfaceFrame.dimensions(in: layer),
+              dimensions.width == Int(canonicalViewportMetrics.pixelWidth),
+              dimensions.height == Int(canonicalViewportMetrics.pixelHeight)
+        else { return }
+        hasPublishedFrame = true
+        GhosttyRuntimeTrace.diagnostics(
+            "tmuxPane.firstFrame pane=\(paneID) attached=\(view.window != nil) size=\(dimensions.width)x\(dimensions.height)"
+        )
+        firstFrameObservation = nil
+        updatePresentationReadiness()
+    }
+
+    private func updatePresentationReadiness() {
+        // A detached/hidden view does not consume the local frame deadline.
+        // Hydration and network startup are owned by the session/controller.
+        let awaitingFrame = lifecycle == .active && rendererIsAvailable
+            && presented && sceneActive && view.window != nil
+            && !hasPublishedFrame && presentationFailure == nil
+        if !awaitingFrame {
+            firstFrameDeadline?.cancel()
+            firstFrameDeadline = nil
+        } else if firstFrameDeadline == nil {
+            firstFrameDeadline = Task { @MainActor [weak self] in
+                try? await Task.sleep(for: Self.framePublicationTimeout)
+                guard !Task.isCancelled, let self else { return }
+                self.firstFrameDeadline = nil
+                GhosttyRuntimeTrace.diagnostics("tmuxPane.firstFrameTimeout pane=\(self.paneID)")
+                self.presentationFailure = TerminalDisconnectReason(
+                    kind: .runtime,
+                    message: "Terminal did not publish its first frame. Reconnect to try again."
+                )
+                self.rendererIsAvailable = false
+                self.managedSurface?.beginRendererRecovery(snapshot: self.currentRendererSnapshot())
+                self.onPresentationChange?()
+            }
+        }
+        onPresentationChange?()
+    }
     private var closeCompletions: [@MainActor @Sendable () -> Void] = []
     private var framePublicationWait: FramePublicationWait?
     private var presentationTask: Task<Void, Never>?
@@ -295,6 +370,12 @@ final class TmuxPaneSurface {
         )
         renderer = Renderer(handle: surface, control: control)
         previewRelay.pane = self
+        view.onWindowAttachmentChange = { [weak self] in
+            // UIKit can attach during a SwiftUI update. Publish after that
+            // transaction while deriving attachment from the current view.
+            DispatchQueue.main.async { [weak self] in self?.updatePresentationReadiness() }
+        }
+        observeFirstFrame()
     }
 
     var rawSurface: ghostty_terminal_surface_t? { renderer?.handle }
@@ -425,11 +506,15 @@ final class TmuxPaneSurface {
         theme: TerminalTheme,
         completion: @escaping @MainActor (RendererReplacementResult) -> Void
     ) {
-        guard lifecycle == .active else {
-            completion(lifecycle == .replacing ? .busy : .failed)
+        guard lifecycle == .active, presentationTask == nil else {
+            completion(lifecycle == .replacing || presentationTask != nil ? .busy : .failed)
             return
         }
         lifecycle = .replacing
+        rendererIsAvailable = false
+        hasPublishedFrame = false
+        firstFrameObservation = nil
+        updatePresentationReadiness()
         // This call is the single replacement attempt for the triggering
         // failure/settings change. Failures inside it return through
         // completion; they must not recursively schedule another attempt.
@@ -514,14 +599,11 @@ final class TmuxPaneSurface {
                     return
                 }
                 lifecycle = .active
-                rendererFailureReported = false
+                observeFirstFrame()
                 managedSurface?.replaceControlSurface(wrapper)
-                guard presented, sceneActive,
-                      let rendererLayer = GhosttyIOSurfaceFrame.rendererLayer(in: view.layer)
-                else {
-                    managedSurface?.finishRendererReplacement(isAvailable: true)
-                    applyPresentationActivity()
-                    completion(.replaced)
+                guard let rendererLayer = GhosttyIOSurfaceFrame.rendererLayer(in: view.layer) else {
+                    managedSurface?.finishRendererReplacement(isAvailable: false)
+                    completion(.failed)
                     return
                 }
 
@@ -537,7 +619,7 @@ final class TmuxPaneSurface {
                         request: .presentation(
                             expectedWidth: metrics.pixelWidth,
                             expectedHeight: metrics.pixelHeight,
-                            keepVisibleAfterSuccess: true
+                            keepVisibleAfterSuccess: presented && sceneActive
                         )
                     )
                     guard presentationGeneration == generation else {
@@ -551,9 +633,13 @@ final class TmuxPaneSurface {
                             "tmuxPane.rendererReplacement firstFrameTimeout pane=\(paneID)"
                         )
                     }
-                    managedSurface?.finishRendererReplacement(isAvailable: true)
+                    rendererIsAvailable = didPublishFrame
+                    hasPublishedFrame = didPublishFrame
+                    // A failed attempt must not recursively replace itself.
+                    rendererFailureReported = !didPublishFrame
+                    managedSurface?.finishRendererReplacement(isAvailable: didPublishFrame)
                     applyPresentationActivity()
-                    completion(.replaced)
+                    completion(didPublishFrame ? .replaced : .failed)
                 }
             }
         }
@@ -589,6 +675,10 @@ final class TmuxPaneSurface {
         guard lifecycle != .closing else { return }
         let wasReplacing = lifecycle == .replacing
         lifecycle = .closing
+        firstFrameObservation = nil
+        updatePresentationReadiness()
+        view.onWindowAttachmentChange = nil
+        onPresentationChange = nil
         cancelPresentationPreparation()
         previewRelay.pane = nil
         failureRelay.pane = nil
@@ -670,6 +760,8 @@ final class TmuxPaneSurface {
     private func rendererDidFail() {
         guard lifecycle == .active, !rendererFailureReported else { return }
         rendererFailureReported = true
+        rendererIsAvailable = false
+        updatePresentationReadiness()
         managedSurface?.beginRendererRecovery(snapshot: currentRendererSnapshot())
         onRendererFailure(paneID)
     }
@@ -693,10 +785,17 @@ final class TmuxPaneSurface {
             _ = renderer?.control.setFocused(active)
             _ = renderer?.control.setVisible(visible)
         }
+        if let layer = GhosttyIOSurfaceFrame.rendererLayer(in: view.layer) {
+            recordFirstFrameIfPublished(on: layer)
+        }
+        updatePresentationReadiness()
     }
 
     private func destroyUnregisteredRenderer() {
         lifecycle = .closed
+        firstFrameObservation = nil
+        firstFrameDeadline?.cancel()
+        view.onWindowAttachmentChange = nil
         cancelPresentationPreparation()
         previewRelay.pane = nil
         failureRelay.pane = nil
@@ -778,7 +877,8 @@ final class TmuxPaneSurface {
                 }
             case .presentation(_, _, let keepVisibleAfterSuccess):
                 _ = renderer?.control.setFocused(keepVisibleAfterSuccess)
-                guard renderer?.control.setVisible(true) == true else {
+                guard renderer?.control.setVisible(true) == true,
+                      renderer?.control.requestFrame() == true else {
                     finishFramePublicationWait(wait, publication: nil)
                     return
                 }
@@ -796,6 +896,9 @@ final class TmuxPaneSurface {
 
         switch wait.request {
         case .presentation(let expectedWidth, let expectedHeight, _):
+            #if DEBUG
+            guard !suppressReplacementPublicationForTesting else { return }
+            #endif
             guard dimensions.width == Int(expectedWidth),
                   dimensions.height == Int(expectedHeight)
             else { return }

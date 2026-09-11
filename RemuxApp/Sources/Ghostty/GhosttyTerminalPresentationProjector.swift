@@ -1,22 +1,32 @@
 import Foundation
 
+/// Presentation is established by the pane owner, never inferred from topology.
+enum TerminalPanePresentation: Equatable, Sendable {
+    case pending
+    case ready
+    case failed(TerminalDisconnectReason)
+}
+
 struct TerminalReadinessSnapshot: Equatable, Sendable {
     let phase: GhosttyTerminalRuntimePhase
     let transportWritable: Bool
     let topLevelCount: Int
     let selectedActiveLeafID: UUID?
+    let selectedPanePresentation: TerminalPanePresentation
 
     init(
         phase: GhosttyTerminalRuntimePhase,
         transportWritable: Bool,
         topLevelCount: Int,
-        selectedActiveLeafID: UUID?
+        selectedActiveLeafID: UUID?,
+        selectedPanePresentation: TerminalPanePresentation = .pending
     ) {
         precondition(topLevelCount >= 0, "topLevelCount must be non-negative")
         self.phase = phase
         self.transportWritable = transportWritable
         self.topLevelCount = topLevelCount
         self.selectedActiveLeafID = selectedActiveLeafID
+        self.selectedPanePresentation = selectedPanePresentation
     }
 
     var hasFocusedSurface: Bool {
@@ -29,40 +39,30 @@ enum TerminalReadinessProjector {
         phase: GhosttyTerminalRuntimePhase,
         transportWritable: Bool,
         topLevelCount: Int,
-        selectedActiveLeafID: UUID?
+        selectedActiveLeafID: UUID?,
+        selectedPanePresentation: TerminalPanePresentation = .pending
     ) -> TerminalReadinessSnapshot {
         TerminalReadinessSnapshot(
             phase: phase,
             transportWritable: transportWritable,
             topLevelCount: topLevelCount,
-            selectedActiveLeafID: selectedActiveLeafID
+            selectedActiveLeafID: selectedActiveLeafID,
+            selectedPanePresentation: selectedPanePresentation
         )
     }
 
     static func runtimeState(_ snapshot: TerminalReadinessSnapshot) -> TerminalRuntimeState {
-        runtimeState(
-            phase: snapshot.phase,
-            hasFocusedSurface: snapshot.hasFocusedSurface
-        )
-    }
-
-    static func runtimeState(
-        phase: GhosttyTerminalRuntimePhase,
-        hasFocusedSurface: Bool
-    ) -> TerminalRuntimeState {
-        if phase == .running, hasFocusedSurface {
-            return .connected
-        }
-
-        switch phase {
-        case .idle, .starting, .running:
+        switch snapshot.phase {
+        case .idle, .starting:
             return .connecting
+        case .running:
+            if case .failed(let reason) = snapshot.selectedPanePresentation {
+                return .disconnected(reason)
+            }
+            return isTerminalStatusReady(snapshot, commandFailureMessage: nil) ? .connected : .connecting
         case .failed(let message, let reason):
             return .disconnected(
-                reason ?? TerminalDisconnectReason(
-                    kind: .unknown,
-                    message: message
-                )
+                reason ?? TerminalDisconnectReason(kind: .unknown, message: message)
             )
         }
     }
@@ -70,7 +70,7 @@ enum TerminalReadinessProjector {
     static func isInputAvailable(_ snapshot: TerminalReadinessSnapshot) -> Bool {
         isInputAvailable(
             phase: snapshot.phase,
-            hasFocusedSurface: snapshot.hasFocusedSurface
+            hasFocusedSurface: snapshot.hasFocusedSurface && snapshot.selectedPanePresentation == .ready
         )
     }
 
@@ -99,7 +99,7 @@ enum TerminalReadinessProjector {
         canSubmitInput(
             phase: snapshot.phase,
             transportWritable: snapshot.transportWritable,
-            hasFocusedSurface: snapshot.hasFocusedSurface
+            hasFocusedSurface: snapshot.hasFocusedSurface && snapshot.selectedPanePresentation == .ready
         )
     }
 
@@ -117,7 +117,7 @@ enum TerminalReadinessProjector {
     }
 
     static func isWaitingForPanes(_ snapshot: TerminalReadinessSnapshot) -> Bool {
-        isWaitingForPanes(phase: snapshot.phase, topLevelCount: snapshot.topLevelCount)
+        snapshot.phase == .running && !canSubmitInput(snapshot)
     }
 
     static func isWaitingForPanes(
@@ -132,13 +132,12 @@ enum TerminalReadinessProjector {
         _ snapshot: TerminalReadinessSnapshot,
         commandFailureMessage: String?
     ) -> Bool {
-        snapshot.phase == .running
-            && snapshot.topLevelCount > 0
+        canSubmitInput(snapshot) && snapshot.topLevelCount > 0
             && commandFailureMessage == nil
     }
 
     static func shouldTraceTerminalReady(_ snapshot: TerminalReadinessSnapshot) -> Bool {
-        snapshot.phase == .running && snapshot.topLevelCount > 0
+        isTerminalStatusReady(snapshot, commandFailureMessage: nil)
     }
 
     static func terminalReadyTraceFields(
@@ -511,13 +510,15 @@ enum GhosttyTerminalPresentationProjector {
         registryDebugSummary: String,
         presentedSurfaceID: UUID?,
         snapshot: GhosttyRuntimeSurfaceTopologySnapshot,
-        viewportProjection: GhosttyTerminalViewportPresentationProjection
+        viewportProjection: GhosttyTerminalViewportPresentationProjection,
+        selectedPanePresentation: TerminalPanePresentation = .pending
     ) -> GhosttyTerminalScreenPresentationProjection {
         let readiness = TerminalReadinessProjector.snapshot(
             phase: phase,
             transportWritable: transportWritable,
             topLevelCount: snapshot.topLevels.count,
-            selectedActiveLeafID: presentedSurfaceID
+            selectedActiveLeafID: presentedSurfaceID,
+            selectedPanePresentation: selectedPanePresentation
         )
 
         return GhosttyTerminalScreenPresentationProjection(
@@ -525,7 +526,8 @@ enum GhosttyTerminalPresentationProjector {
             interaction: terminalInteractionProjection(
                 phase: phase,
                 presentedSurfaceID: presentedSurfaceID,
-                snapshot: snapshot
+                snapshot: snapshot,
+                selectedPanePresentation: selectedPanePresentation
             ),
             viewport: viewportProjection,
             statusOverlay: terminalStatusOverlayProjection(
@@ -549,6 +551,9 @@ enum GhosttyTerminalPresentationProjector {
         case .failed(let message, let reason):
             return .failed(message: message, reason: reason)
         case .running:
+            if case .failed(let reason) = readiness.selectedPanePresentation {
+                return .failed(message: reason.message, reason: reason)
+            }
             if let commandFailureMessage {
                 return .commandFailure(commandFailureMessage)
             }
@@ -572,7 +577,8 @@ enum GhosttyTerminalPresentationProjector {
     static func terminalInteractionProjection(
         phase: GhosttyTerminalRuntimePhase,
         presentedSurfaceID: UUID?,
-        snapshot: GhosttyRuntimeSurfaceTopologySnapshot
+        snapshot: GhosttyRuntimeSurfaceTopologySnapshot,
+        selectedPanePresentation: TerminalPanePresentation = .pending
     ) -> GhosttyTerminalInteractionProjection {
         let selectedTopLevel = snapshot.selectedTopLevel
         let hasFocusedSurface = presentedSurfaceID != nil
@@ -580,7 +586,7 @@ enum GhosttyTerminalPresentationProjector {
         return GhosttyTerminalInteractionProjection(
             isInputAvailable: TerminalReadinessProjector.isInputAvailable(
                 phase: phase,
-                hasFocusedSurface: hasFocusedSurface
+                hasFocusedSurface: hasFocusedSurface && selectedPanePresentation == .ready
             ),
             hasFocusedSurface: hasFocusedSurface,
             selectedActiveLeafID: presentedSurfaceID,
