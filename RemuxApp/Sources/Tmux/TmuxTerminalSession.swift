@@ -38,10 +38,6 @@ final class TmuxTerminalSession: ObservableObject {
     ] = [:]
     private var creatingPaneIDs: Set<TmuxPaneID> = []
     private var presentationFailures: [TmuxPaneID: TerminalDisconnectReason] = [:]
-    var selectedPanePresentation: TerminalPanePresentation {
-        let paneID = topology?.windows.first(where: { $0.id == topology?.activeWindowID })?.activePaneID
-        return presentation(for: paneID)
-    }
     // Also invalidates the screen when an unselected pane changes presentation.
     @Published private(set) var presentationRevision: UInt64 = 0
 
@@ -100,8 +96,10 @@ final class TmuxTerminalSession: ObservableObject {
             onActivePaneChanged: { paneID in
                 MainActor.assumeIsolated { relay.target?.handleActivePaneChanged(paneID) }
             },
-            onPaneSurfaceFailed: { paneID in
-                MainActor.assumeIsolated { relay.target?.handleRendererFailure(paneID) }
+            onPaneSurfaceFailed: { paneID, failedSurface in
+                MainActor.assumeIsolated {
+                    relay.target?.handlePaneSurfaceFailure(paneID, failedSurface: failedSurface)
+                }
             },
             onRequestFailed: { request in
                 MainActor.assumeIsolated { relay.target?.handleRequestFailed(request) }
@@ -274,7 +272,7 @@ final class TmuxTerminalSession: ObservableObject {
         guard let topology,
               let metrics = presentationMetrics(for: paneID, in: topology)
         else {
-            failPresentation(paneID, message: "Terminal renderer is unavailable. Reconnect to try again.")
+            surface.failPresentation(message: "Terminal renderer is unavailable. Reconnect to try again.")
             return
         }
         surface.replaceRenderer(
@@ -287,25 +285,31 @@ final class TmuxTerminalSession: ObservableObject {
             case .replaced:
                 if let surface,
                    surfacesByPaneID[paneID] === surface {
-                    _ = surface.applyTerminalConfiguration(theme: paneViewTheme())
-                    if let currentTopology = self.topology,
-                       let currentMetrics = self.presentationMetrics(
-                           for: paneID,
-                           in: currentTopology
-                       ) {
-                        surface.updateCanonicalViewportMetrics(currentMetrics)
-                    }
                     self.reconcilePresentationActivity()
                 }
             case .busy:
                 break
             case .failed:
-                self.failPresentation(paneID, message: "Terminal renderer could not recover. Reconnect to try again.")
                 GhosttyRuntimeTrace.diagnostics(
                     "tmuxPane.rendererReplacement failed pane=\(paneID)"
                 )
             }
         }
+    }
+
+    private func handlePaneSurfaceFailure(
+        _ paneID: TmuxPaneID,
+        failedSurface: TmuxSessionController.TerminalSurfaceHandle?
+    ) {
+        guard !isShutDown else { return }
+        guard let failedSurface else {
+            failPresentation(paneID, message: "Terminal pane could not be initialized. Reconnect to try again.")
+            return
+        }
+        guard let surface = surfacesByPaneID[paneID],
+              surface.rawSurface == failedSurface.value
+        else { return }
+        surface.reportRendererFailure()
     }
 
     private func handleRequestFailed(_ request: TmuxSessionController.Request) {
@@ -366,11 +370,29 @@ final class TmuxTerminalSession: ObservableObject {
                     return
                 }
                 surface.onPresentationChange = { [weak self] in self?.presentationDidChange() }
-                surface.setSceneActive(isAppActive)
                 surfacesByPaneID[paneID] = surface
+                // Registration crosses the writer queue. Geometry and settings
+                // may have changed while this renderer was being admitted.
+                if let failure = presentationFailures.removeValue(forKey: paneID) {
+                    surface.failPresentation(message: failure.message)
+                } else {
+                    applyCurrentPresentationConfiguration(to: surface)
+                }
+                surface.setSceneActive(isAppActive)
                 reconcilePresentationActivity()
             }
             resumeShutdownDrainIfQuiescent()
+        }
+    }
+
+    private func applyCurrentPresentationConfiguration(to surface: TmuxPaneSurface) {
+        guard let topology,
+              let metrics = presentationMetrics(for: surface.paneID, in: topology),
+              surface.applyTerminalConfiguration(theme: paneViewTheme()),
+              surface.updateDisplay(metrics: metrics)
+        else {
+            surface.failPresentation(message: "Terminal renderer could not apply its current configuration. Reconnect to try again.")
+            return
         }
     }
 
@@ -471,7 +493,9 @@ final class TmuxTerminalSession: ObservableObject {
     func applyTerminalConfiguration(theme: TerminalTheme) {
         guard !isShutDown else { return }
         for surface in surfacesByPaneID.values where !surface.isClosing {
-            _ = surface.applyTerminalConfiguration(theme: theme)
+            if !surface.applyTerminalConfiguration(theme: theme) {
+                surface.failPresentation(message: "Terminal renderer could not apply its current configuration. Reconnect to try again.")
+            }
         }
     }
 

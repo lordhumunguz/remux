@@ -116,10 +116,6 @@ enum TerminalReadinessProjector {
             && isTransportAvailableForInput(phase: phase, transportWritable: transportWritable)
     }
 
-    static func isWaitingForPanes(_ snapshot: TerminalReadinessSnapshot) -> Bool {
-        snapshot.phase == .running && !canSubmitInput(snapshot)
-    }
-
     static func isWaitingForPanes(
         phase: GhosttyTerminalRuntimePhase,
         topLevelCount: Int
@@ -557,20 +553,16 @@ enum GhosttyTerminalPresentationProjector {
             if let commandFailureMessage {
                 return .commandFailure(commandFailureMessage)
             }
-            let waitingProjection = GhosttyTerminalStatusOverlayProjection.waitingForPanes(
-                debugStatus: debugStatus,
-                registryDebugSummary: registryDebugSummary
-            )
-            if TerminalReadinessProjector.isWaitingForPanes(readiness) {
-                return waitingProjection
-            }
             if TerminalReadinessProjector.isTerminalStatusReady(
                 readiness,
                 commandFailureMessage: nil
             ) {
                 return .ready
             }
-            return waitingProjection
+            return .waitingForPanes(
+                debugStatus: debugStatus,
+                registryDebugSummary: registryDebugSummary
+            )
         }
     }
 

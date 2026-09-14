@@ -326,18 +326,8 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
     func testReadinessProjectionPreservesStatusAndTraceConditions() {
         XCTAssertTrue(
             TerminalReadinessProjector.isWaitingForPanes(
-                Self.readinessSnapshot(phase: .running, topLevelCount: 0, focused: false)
-            )
-        )
-        XCTAssertTrue(
-            TerminalReadinessProjector.isWaitingForPanes(
                 phase: .running,
                 topLevelCount: 0
-            )
-        )
-        XCTAssertFalse(
-            TerminalReadinessProjector.isWaitingForPanes(
-                Self.readinessSnapshot(phase: .starting, topLevelCount: 0, focused: false)
             )
         )
         XCTAssertFalse(
