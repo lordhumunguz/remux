@@ -539,19 +539,25 @@ private actor InMemoryConnectionProfileRepository: ConnectionProfileRepository {
     func loadSnapshot() async throws -> ConnectionLibrarySnapshot {
         let serverIDs = Set(servers.map(\.id))
         return ConnectionLibrarySnapshot(
-            servers: servers.sorted {
+            servers: serverOrder.isEmpty ? servers.sorted {
                 $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
-            },
+            } : servers,
             workspaces: workspaces.filter { serverIDs.contains($0.serverID) },
             identities: identities.sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
-        )
+        ).orderingServers(by: serverOrder)
     }
 
     func loadProfile() async throws -> (SavedServer, SavedWorkspace)? {
         try await loadSnapshot().latestProfile
     }
+
+    func saveServerOrder(_ ids: [SavedServer.ID]) async throws {
+        serverOrder = ids
+    }
+
+    private var serverOrder: [SavedServer.ID] = []
 
     func saveServer(_ server: SavedServer) async throws {
         upsert(server, into: &servers)

@@ -574,6 +574,7 @@ private struct RemuxWorkspaceShell: View {
                     model.showActiveSession(workspaceID)
                 },
                 onDisconnectActiveSession: model.disconnectActiveSession,
+                onMoveServers: model.moveServers,
                 onDeleteServer: { serverID in
                     Task { await model.deleteServer(serverID) }
                 },
@@ -583,6 +584,15 @@ private struct RemuxWorkspaceShell: View {
             )
         }
         .zIndex(2)
+        .alert("Server Order Couldn’t Be Saved", isPresented: Binding(
+            get: { model.serverOrderSaveFailed },
+            set: { if !$0 { model.dismissServerOrderSaveFailure() } }
+        )) {
+            Button("Retry", action: model.retryServerOrderSave)
+            Button("Cancel", role: .cancel, action: model.dismissServerOrderSaveFailure)
+        } message: {
+            Text("Your order is still shown, but may be lost when you close Remux. Try saving it again.")
+        }
     }
 
     private var terminalSettingsBinding: Binding<TerminalSettings> {
@@ -835,11 +845,13 @@ private struct ConnectionLibraryView: View {
     let onTrustDiscoveryHostKey: (SSHHostKeyTrustChallenge) -> Void
     let onShowActiveSession: (SavedWorkspace.ID) -> Void
     let onDisconnectActiveSession: (SavedWorkspace.ID) -> Void
+    let onMoveServers: (IndexSet, Int) -> Void
     let onDeleteServer: (SavedServer.ID) -> Void
     let onDeleteWorkspace: (SavedWorkspace.ID) -> Void
 
     @State private var showsAllConnectedSessions = false
     @State private var showsAllRecentSessions = false
+    @State private var serverEditMode: EditMode = .inactive
 
     var body: some View {
         let sessionProjection = SessionSwitcherProjection(
@@ -859,6 +871,7 @@ private struct ConnectionLibraryView: View {
                     recentSessionsSection
                 }
                 .listStyle(.insetGrouped)
+                .environment(\.editMode, $serverEditMode)
                 .accessibilityIdentifier("library.list")
             }
         }
@@ -870,6 +883,9 @@ private struct ConnectionLibraryView: View {
             GhosttyKitRuntime.prewarmTerminalRenderer(terminalSettings: terminalSettings)
         }
         .navigationTitle("Remux")
+        .onChange(of: snapshot.servers.count) { _, count in
+            if count < 2 { serverEditMode = .inactive }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
@@ -1092,8 +1108,27 @@ private struct ConnectionLibraryView: View {
                 }
                 .libraryHomeListRowSurface()
             }
+            .onMove(perform: onMoveServers)
         } header: {
-            LibraryHomeSectionHeader("Servers")
+            HStack {
+                LibraryHomeSectionHeader("Servers")
+                Spacer()
+                if snapshot.servers.count > 1 {
+                    Button {
+                        withAnimation {
+                            serverEditMode = serverEditMode.isEditing ? .inactive : .active
+                        }
+                    } label: {
+                        Text(serverEditMode.isEditing ? "Done" : "Reorder")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .font(.subheadline)
+                    .textCase(nil)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityLabel(serverEditMode.isEditing ? "Done Reordering Servers" : "Reorder Servers")
+                    .accessibilityIdentifier("library.servers.edit")
+                }
+            }
         }
     }
 
@@ -1876,6 +1911,24 @@ private struct TerminalSettingsView: View {
 
             Section("Keyboard") {
                 NavigationLink {
+                    TerminalToolbarKeysSettingsView(
+                        toolbarKeys: toolbarKeysBinding,
+                        theme: settings.theme
+                    )
+                } label: {
+                    Label {
+                        LabeledContent("Toolbar Keys") {
+                            Text(settings.toolbarKeys.compactSummary)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "keyboard.badge.ellipsis")
+                    }
+                }
+                .accessibilityIdentifier("settings.toolbar-keys")
+                .accessibilityValue(settings.toolbarKeys.summary)
+
+                NavigationLink {
                     ShortcutsSettingsView(
                         store: shortcutStore,
                         theme: settings.theme
@@ -1965,6 +2018,91 @@ private struct TerminalSettingsView: View {
             set: { value in
                 settings.zoomMultipaneWindowsByDefault = value
                 sourceSettings = settings
+            }
+        )
+    }
+
+    private var toolbarKeysBinding: Binding<TerminalToolbarKeys> {
+        Binding(
+            get: { settings.toolbarKeys },
+            set: { value in
+                settings.toolbarKeys = value
+                sourceSettings = settings
+            }
+        )
+    }
+}
+
+private struct TerminalToolbarKeysSettingsView: View {
+    @Binding var toolbarKeys: TerminalToolbarKeys
+    let theme: TerminalTheme
+
+    var body: some View {
+        Form {
+            Section {
+                toolbarKeyPicker(
+                    "First Key",
+                    selection: binding(for: \.first),
+                    identifier: "settings.toolbar-keys.slot.0"
+                )
+                toolbarKeyPicker(
+                    "Second Key",
+                    selection: binding(for: \.second),
+                    identifier: "settings.toolbar-keys.slot.1"
+                )
+                toolbarKeyPicker(
+                    "Third Key",
+                    selection: binding(for: \.third),
+                    identifier: "settings.toolbar-keys.slot.2"
+                )
+            } header: {
+                Text("Key Layout")
+            } footer: {
+                Text(
+                    "These keys appear on the left side of the terminal toolbar. "
+                        + "Touch and hold the first key to open Shortcuts."
+                )
+            }
+            .libraryHomeListRowSurface()
+
+            if toolbarKeys != .default {
+                Section {
+                    Button("Reset to Defaults") {
+                        toolbarKeys = .default
+                    }
+                    .accessibilityIdentifier("settings.toolbar-keys.reset")
+                }
+                .libraryHomeListRowSurface()
+            }
+        }
+        .libraryHomeGroupedScrollBackground()
+        .libraryHomeChrome(theme: theme)
+        .navigationTitle("Toolbar Keys")
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("settings.toolbar-keys.form")
+    }
+
+    private func toolbarKeyPicker(
+        _ title: String,
+        selection: Binding<TerminalToolbarKey>,
+        identifier: String
+    ) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(TerminalToolbarKey.allCases, id: \.self) { key in
+                Text(key.settingsTitle).tag(key)
+            }
+        }
+        .pickerStyle(.navigationLink)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func binding(
+        for keyPath: WritableKeyPath<TerminalToolbarKeys, TerminalToolbarKey>
+    ) -> Binding<TerminalToolbarKey> {
+        Binding(
+            get: { toolbarKeys[keyPath: keyPath] },
+            set: { value in
+                toolbarKeys[keyPath: keyPath] = value
             }
         )
     }

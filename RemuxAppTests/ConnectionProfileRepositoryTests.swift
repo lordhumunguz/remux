@@ -2,6 +2,61 @@ import XCTest
 @testable import Remux
 
 final class ConnectionProfileRepositoryTests: XCTestCase {
+    func testCustomServerOrderSurvivesReloadRenameInsertAndDelete() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = FileBackedConnectionProfileRepository(rootURL: root)
+        var alpha = SavedServer(displayName: "Alpha", host: "alpha.example.test", username: "demo")
+        let beta = SavedServer(displayName: "Beta", host: "beta.example.test", username: "demo")
+        let newest = SavedServer(displayName: "A New Server", host: "new.example.test", username: "demo")
+        let workspace = SavedWorkspace(serverID: alpha.id, sessionName: "work")
+        try await repository.saveProfile(server: alpha, workspace: workspace)
+        try await repository.saveServer(beta)
+        let serverData = try Data(contentsOf: root.appendingPathComponent("servers.json"))
+        try await repository.saveServerOrder([beta.id, alpha.id])
+        XCTAssertEqual(try Data(contentsOf: root.appendingPathComponent("servers.json")), serverData)
+
+        alpha.displayName = "Z Renamed"
+        try await repository.saveServer(alpha)
+        try await repository.saveServer(newest)
+        let reloaded = FileBackedConnectionProfileRepository(rootURL: root)
+        let snapshot = try await reloaded.loadSnapshot()
+        XCTAssertEqual(snapshot.servers, [beta, alpha, newest])
+        XCTAssertEqual(snapshot.workspaces, [workspace])
+        try await reloaded.deleteServer(id: beta.id)
+        let afterDelete = try await reloaded.loadSnapshot()
+        XCTAssertEqual(afterDelete.servers, [alpha, newest])
+    }
+
+    func testServerOrderIgnoresDuplicateAndDeletedIDsWithoutHidingNewServers() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = FileBackedConnectionProfileRepository(rootURL: root)
+        let alpha = SavedServer(displayName: "Alpha", host: "alpha.example.test", username: "demo")
+        let beta = SavedServer(displayName: "Beta", host: "beta.example.test", username: "demo")
+        try await repository.saveServer(alpha)
+        try await repository.saveServer(beta)
+        try await repository.saveServerOrder([UUID(), beta.id, beta.id])
+        let snapshot = try await repository.loadSnapshot()
+        XCTAssertEqual(snapshot.servers, [beta, alpha])
+    }
+
+    func testInvalidServerOrderFallsBackWithoutLosingConnections() async throws {
+        let root = temporaryRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let repository = FileBackedConnectionProfileRepository(rootURL: root)
+        let beta = SavedServer(displayName: "Beta", host: "beta.example.test", username: "demo")
+        let alpha = SavedServer(displayName: "Alpha", host: "alpha.example.test", username: "demo")
+        try await repository.saveServer(beta)
+        try await repository.saveServer(alpha)
+        try Data("not JSON".utf8).write(to: root.appendingPathComponent("server-order.json"))
+        let snapshot = try await repository.loadSnapshot()
+        XCTAssertEqual(snapshot.servers, [alpha, beta])
+        try await repository.saveServerOrder([beta.id, alpha.id])
+        let repaired = try await repository.loadSnapshot()
+        XCTAssertEqual(repaired.servers, [beta, alpha])
+    }
+
     func testFileBackedRepositoryPersistsLatestServerWorkspacePair() async throws {
         let root = temporaryRoot()
         let repository = FileBackedConnectionProfileRepository(rootURL: root)

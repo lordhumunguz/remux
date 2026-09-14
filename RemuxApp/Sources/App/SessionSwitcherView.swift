@@ -103,7 +103,9 @@ struct SessionSwitcherProjection: Equatable {
 
         self.availableSessions = snapshot.servers
             .flatMap { server in
-                discoveryStates[server.id]?.sessionNames.map { sessionName in
+                discoveryStates[server.id]?.sessionNames.sorted {
+                    $0.localizedStandardCompare($1) == .orderedAscending
+                }.map { sessionName in
                     AvailableSessionSwitcherItem(
                         id: RemoteTmuxSessionIdentity(
                             serverID: server.id,
@@ -116,33 +118,14 @@ struct SessionSwitcherProjection: Equatable {
             .filter {
                 !activeIdentities.contains($0.id) && !recentIdentities.contains($0.id)
             }
-            .sorted { lhs, rhs in
-                let serverComparison = lhs.serverName.localizedStandardCompare(rhs.serverName)
-                if serverComparison != .orderedSame {
-                    return serverComparison == .orderedAscending
-                }
-                let sessionComparison = lhs.id.sessionName.localizedStandardCompare(
-                    rhs.id.sessionName
-                )
-                if sessionComparison != .orderedSame {
-                    return sessionComparison == .orderedAscending
-                }
-                return lhs.id.serverID.uuidString < rhs.id.serverID.uuidString
-            }
     }
 
     static func orderedServers(
         _ servers: [SavedServer],
         currentServerID: SavedServer.ID?
     ) -> [SavedServer] {
-        servers.sorted { lhs, rhs in
-            let lhsIsCurrent = lhs.id == currentServerID
-            let rhsIsCurrent = rhs.id == currentServerID
-            if lhsIsCurrent != rhsIsCurrent {
-                return lhsIsCurrent
-            }
-            return lhs.displayName.localizedStandardCompare(rhs.displayName) == .orderedAscending
-        }
+        servers.filter { $0.id == currentServerID }
+            + servers.filter { $0.id != currentServerID }
     }
 }
 
@@ -798,25 +781,19 @@ private struct AvailableSessionsBrowserView: View {
     }
 
     private var groups: [ServerGroup] {
-        Dictionary(grouping: matchingSessions, by: \.id.serverID)
-            .compactMap { serverID, sessions in
-                guard let serverName = sessions.first?.serverName else { return nil }
-                return ServerGroup(
-                    id: serverID,
-                    serverName: serverName,
-                    sessions: sessions.sorted {
-                        $0.id.sessionName.localizedStandardCompare($1.id.sessionName)
-                            == .orderedAscending
-                    }
-                )
-            }
-            .sorted { lhs, rhs in
-                let comparison = lhs.serverName.localizedStandardCompare(rhs.serverName)
-                if comparison != .orderedSame {
-                    return comparison == .orderedAscending
-                }
-                return lhs.id.uuidString < rhs.id.uuidString
-            }
+        let sessions = matchingSessions
+        let grouped = Dictionary(grouping: sessions, by: \.id.serverID)
+        var seen = Set<SavedServer.ID>()
+        return sessions.compactMap { session in
+            let serverID = session.id.serverID
+            guard seen.insert(serverID).inserted,
+                  let serverSessions = grouped[serverID] else { return nil }
+            return ServerGroup(
+                id: serverID,
+                serverName: session.serverName,
+                sessions: serverSessions
+            )
+        }
     }
 
     @ViewBuilder

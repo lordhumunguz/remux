@@ -3,6 +3,22 @@ import XCTest
 @testable import Remux
 
 final class SessionSwitcherProjectionTests: XCTestCase {
+    func testAvailableSessionsFollowServerOrderWithNamesSortedWithinEachServer() {
+        let zulu = makeServer(name: "Zulu")
+        let alpha = makeServer(name: "Alpha")
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [zulu, alpha], workspaces: []),
+            activeSessions: [],
+            discoveryStates: [
+                zulu.id: loadedDiscovery(["z", "a"]),
+                alpha.id: loadedDiscovery(["b"]),
+            ],
+            selectedSessionID: nil
+        )
+        XCTAssertEqual(projection.availableSessions.map(\.id.serverID), [zulu.id, zulu.id, alpha.id])
+        XCTAssertEqual(projection.availableSessions.map(\.id.sessionName), ["a", "z", "b"])
+    }
+
     @MainActor
     func testLastOpenedPresentationUsesJustNowForRecentDates() {
         let referenceDate = Date(timeIntervalSince1970: 10_000)
@@ -227,7 +243,7 @@ final class SessionSwitcherProjectionTests: XCTestCase {
         XCTAssertEqual(projection.recentSessions.map(\.id), [available.id])
     }
 
-    func testOrderedServersPlacesCurrentServerFirstThenSortsByName() {
+    func testOrderedServersPlacesCurrentServerFirstAndPreservesLibraryOrder() {
         let production = makeServer(name: "Production")
         let macMini = makeServer(name: "Mac Mini")
         let staging = makeServer(name: "Staging")
@@ -237,7 +253,11 @@ final class SessionSwitcherProjectionTests: XCTestCase {
             currentServerID: staging.id
         )
 
-        XCTAssertEqual(ordered.map(\.id), [staging.id, macMini.id, production.id])
+        XCTAssertEqual(ordered.map(\.id), [staging.id, production.id, macMini.id])
+        XCTAssertEqual(
+            SessionSwitcherProjection.orderedServers([production, macMini], currentServerID: nil),
+            [production, macMini]
+        )
     }
 
     private func snapshot(

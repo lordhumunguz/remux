@@ -142,6 +142,11 @@ private actor InMemoryConnectionProfileRepository: ConnectionProfileRepository {
         try await loadSnapshot().latestProfile
     }
 
+    func saveServerOrder(_ ids: [SavedServer.ID]) async throws {
+        servers = ConnectionLibrarySnapshot(servers: servers, workspaces: [])
+            .orderingServers(by: ids).servers
+    }
+
     func saveServer(_ server: SavedServer) async throws {
         upsert(server, into: &servers)
     }
