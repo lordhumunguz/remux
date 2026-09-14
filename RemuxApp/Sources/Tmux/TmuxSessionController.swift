@@ -167,12 +167,12 @@ final class TmuxSessionController: @unchecked Sendable {
         var onPaneRemoved: @Sendable (TmuxPaneID) -> Void = { _ in }
         var onPaneTerminal: @Sendable (RetainedPaneTerminal) -> Void = { _ in }
         var onActivePaneChanged: @Sendable (TmuxPaneID) -> Void = { _ in }
-        var onPaneSurfaceFailed: @Sendable (TmuxPaneID) -> Void = { _ in }
+        var onPaneSurfaceFailed: @Sendable (TmuxPaneID, TerminalSurfaceHandle?) -> Void = { _, _ in }
         var onRequestFailed: @Sendable (Request) -> Void = { _ in }
     }
 
     /// Pointer values cross actor boundaries only as opaque native identities.
-    private struct TerminalSurfaceHandle: @unchecked Sendable, Equatable {
+    struct TerminalSurfaceHandle: @unchecked Sendable, Equatable {
         let value: ghostty_terminal_surface_t
 
         static func == (lhs: Self, rhs: Self) -> Bool {
@@ -521,7 +521,7 @@ final class TmuxSessionController: @unchecked Sendable {
             )
             guard result == GHOSTTY_TMUX_RESULT_OK, let terminal else {
                 retainedPaneIDs.remove(paneID)
-                DispatchQueue.main.async { self.callbacks.onPaneSurfaceFailed(paneID) }
+                DispatchQueue.main.async { self.callbacks.onPaneSurfaceFailed(paneID, nil) }
                 return
             }
             let handoff = RetainedPaneTerminal(paneID: paneID, handle: terminal)
@@ -533,7 +533,7 @@ final class TmuxSessionController: @unchecked Sendable {
             let result = ghostty_terminal_surface_terminal_changed(surface.value)
             if result != GHOSTTY_TERMINAL_SURFACE_RESULT_OK {
                 surfacesByPaneID.removeValue(forKey: paneID)
-                DispatchQueue.main.async { self.callbacks.onPaneSurfaceFailed(paneID) }
+                DispatchQueue.main.async { self.callbacks.onPaneSurfaceFailed(paneID, surface) }
                 return
             }
         }

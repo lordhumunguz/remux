@@ -4,6 +4,31 @@ import XCTest
 
 @MainActor
 final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
+    func testTopologyAndSurfaceIdentityCannotDeclarePresentationSuccess() {
+        let paneID = UUID()
+        let failure = TerminalDisconnectReason(kind: .runtime, message: "first frame failed")
+        for presentation in [TerminalPanePresentation.pending, .failed(failure), .ready] {
+            let snapshot = TerminalReadinessProjector.snapshot(
+                phase: .running, transportWritable: true, topLevelCount: 1,
+                selectedActiveLeafID: paneID, selectedPanePresentation: presentation
+            )
+            XCTAssertEqual(TerminalReadinessProjector.uiTestInputReady(snapshot), presentation == .ready)
+            XCTAssertEqual(TerminalReadinessProjector.isTerminalStatusReady(snapshot, commandFailureMessage: nil), presentation == .ready)
+            let expected: TerminalRuntimeState = switch presentation {
+            case .pending: .connecting
+            case .ready: .connected
+            case .failed(let reason): .disconnected(reason)
+            }
+            XCTAssertEqual(TerminalReadinessProjector.runtimeState(snapshot), expected)
+            if presentation == .failed(failure) {
+                XCTAssertEqual(GhosttyTerminalPresentationProjector.terminalStatusOverlayProjection(
+                    readiness: snapshot, commandFailureMessage: "less important command failure",
+                    debugStatus: "", registryDebugSummary: ""
+                ), .failed(message: failure.message, reason: failure))
+            }
+        }
+    }
+
     func testCompositeLayoutUsesExactSharedCellMetricWithoutScaling() throws {
         let layout = try XCTUnwrap(GhosttyCompositeViewportLayout(
             bounds: CGRect(x: 0, y: 0, width: 400, height: 300),
@@ -154,7 +179,7 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
                     topLevelCount: 0,
                     focused: true
                 ),
-                .connected
+                .connecting
             ),
             (
                 Self.readinessSnapshot(phase: .failed(message: "fallback", reason: reason), focused: false),
@@ -247,14 +272,14 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
         }
     }
 
-    func testUITestInputReadyUsesSubmitInputContractNotStatusReady() {
+    func testStatusAndInputReadinessBothRequirePresentedSelectedPane() {
         let statusReadyWithoutFocusedSurface = Self.readinessSnapshot(
             phase: .running,
             transportWritable: true,
             topLevelCount: 1,
             focused: false
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TerminalReadinessProjector.isTerminalStatusReady(
                 statusReadyWithoutFocusedSurface,
                 commandFailureMessage: nil
@@ -301,18 +326,8 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
     func testReadinessProjectionPreservesStatusAndTraceConditions() {
         XCTAssertTrue(
             TerminalReadinessProjector.isWaitingForPanes(
-                Self.readinessSnapshot(phase: .running, topLevelCount: 0, focused: false)
-            )
-        )
-        XCTAssertTrue(
-            TerminalReadinessProjector.isWaitingForPanes(
                 phase: .running,
                 topLevelCount: 0
-            )
-        )
-        XCTAssertFalse(
-            TerminalReadinessProjector.isWaitingForPanes(
-                Self.readinessSnapshot(phase: .starting, topLevelCount: 0, focused: false)
             )
         )
         XCTAssertFalse(
@@ -334,7 +349,7 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
                 commandFailureMessage: "tmux command failed"
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TerminalReadinessProjector.isTerminalStatusReady(
                 Self.readinessSnapshot(phase: .running, topLevelCount: 1, focused: false),
                 commandFailureMessage: nil
@@ -351,7 +366,7 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
                 Self.readinessSnapshot(phase: .running, topLevelCount: 0, focused: true)
             )
         )
-        XCTAssertTrue(
+        XCTAssertFalse(
             TerminalReadinessProjector.shouldTraceTerminalReady(
                 Self.readinessSnapshot(phase: .running, topLevelCount: 1, focused: false)
             )
@@ -452,7 +467,7 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
                 debugStatus: "transport started",
                 registryDebugSummary: "top=1"
             ),
-            .ready
+            .waitingForPanes(debugStatus: "transport started", registryDebugSummary: "top=1")
         )
     }
 
@@ -622,7 +637,8 @@ final class GhosttyTerminalPresentationProjectorTests: XCTestCase {
             phase: phase,
             transportWritable: transportWritable,
             topLevelCount: topLevelCount,
-            selectedActiveLeafID: focused ? UUID() : nil
+            selectedActiveLeafID: focused ? UUID() : nil,
+            selectedPanePresentation: focused ? .ready : .pending
         )
     }
 }

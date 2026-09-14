@@ -26,7 +26,7 @@ final class GhosttyTerminalRuntimeStateReporterTests: XCTestCase {
                     focused: true
                 )
             ),
-            .connected
+            .connecting
         )
     }
 
@@ -61,7 +61,8 @@ final class GhosttyTerminalRuntimeStateReporterTests: XCTestCase {
             phase: phase,
             transportWritable: transportWritable,
             topLevelCount: topLevelCount,
-            selectedActiveLeafID: focused ? UUID() : nil
+            selectedActiveLeafID: focused ? UUID() : nil,
+            selectedPanePresentation: focused ? .ready : .pending
         )
     }
 }
