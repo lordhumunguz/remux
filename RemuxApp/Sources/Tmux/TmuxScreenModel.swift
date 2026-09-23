@@ -61,6 +61,7 @@ final class TmuxScreenModel: ObservableObject {
     private var transportFailureObservation: AnyCancellable?
     private var agentInfoObservation: AnyCancellable?
     private var responsiveAccordionObservation: AnyCancellable?
+    private var presentationObservation: AnyCancellable?
     private var stopped = false
     private var initialViewport: TmuxControlViewport?
     private var lastSubmittedClientSize: TmuxSessionController.ClientSize?
@@ -148,6 +149,18 @@ final class TmuxScreenModel: ObservableObject {
             .removeDuplicates()
             .sink { [weak self] state in
                 self?.handleSessionState(state)
+            }
+
+        // Use the screen's selected pane (including pending pane selection).
+        // Observe after Published's willSet so domain and UI read the same
+        // current topology, attachment, renderer availability, and frame.
+        presentationObservation = terminalScreenAdapter.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self, weak session] in
+                guard let self, !self.stopped, session?.state == .ready else { return }
+                self.report(TerminalReadinessProjector.runtimeState(
+                    self.terminalScreenAdapter.terminalScreenPresentationProjection.readiness
+                ), source: .readiness)
             }
 
         // A failed connect can leave the state unchanged (.detached(nil)
@@ -370,6 +383,7 @@ final class TmuxScreenModel: ObservableObject {
         transportFailureObservation = nil
         agentInfoObservation = nil
         responsiveAccordionObservation = nil
+        presentationObservation = nil
         terminalScreenAdapter.prepareForSessionShutdown()
         terminalScreenAdapter.invalidate()
         if let session {
@@ -402,7 +416,9 @@ final class TmuxScreenModel: ObservableObject {
         case .attaching, .syncing:
             return .connecting
         case .ready:
-            return .connected
+            return TerminalReadinessProjector.runtimeState(
+                terminalScreenAdapter.terminalScreenPresentationProjection.readiness
+            )
         case .detached(let reason):
             if connecting {
                 // A connection is being initiated from the session's

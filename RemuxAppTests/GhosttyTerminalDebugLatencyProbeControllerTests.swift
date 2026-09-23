@@ -347,7 +347,8 @@ final class GhosttyTerminalDebugLatencyProbeControllerTests: XCTestCase {
             phase: phase,
             transportWritable: transportWritable,
             topLevelCount: topLevelCount,
-            selectedActiveLeafID: focused ? UUID() : nil
+            selectedActiveLeafID: focused ? UUID() : nil,
+            selectedPanePresentation: focused ? .ready : .pending
         )
     }
 }

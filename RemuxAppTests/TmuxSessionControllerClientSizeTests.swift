@@ -849,7 +849,7 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
 
         harness.controller.reclaimActiveViewport()
         await drain(harness.controller)
-        XCTAssertEqual(harness.recorder.takeStrings(), ["select-window -t @0\n"])
+        XCTAssertEqual(harness.recorder.takeStrings(), ["select-window\n"])
 
         harness.controller.pump(Data(responseBlock(
             commandNumber: &nextCommandNumber
@@ -860,7 +860,7 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
         await drain(harness.controller)
         XCTAssertEqual(
             harness.recorder.takeStrings(),
-            ["select-window -t @0\n"],
+            ["select-window\n"],
             "a matching reclaim must not wait for a layout change that tmux will not emit"
         )
     }
@@ -881,7 +881,7 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
         await drain(harness.controller)
         XCTAssertEqual(
             harness.recorder.takeStrings(),
-            ["select-window -t @0\nsend-keys -H -t %0 61\n"]
+            ["select-window\nsend-keys -H -t %0 61\n"]
         )
 
         XCTAssertTrue(harness.controller.sendInput(paneID: 0, Data("b".utf8)))
@@ -921,7 +921,7 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
         await drain(harness.controller)
         XCTAssertEqual(
             harness.recorder.takeStrings(),
-            ["select-window -t @0\nsend-keys -H -t %0 64\n"]
+            ["select-window\nsend-keys -H -t %0 64\n"]
         )
     }
 
@@ -940,7 +940,31 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
 
         XCTAssertEqual(
             harness.recorder.takeStrings(),
-            ["refresh-client -C 100x40\nselect-window -t @0\n"]
+            ["refresh-client -C 100x40\nselect-window\n"]
+        )
+    }
+
+    func testViewportClaimDoesNotRetargetWindowWhileSelectionReplyIsPending() async throws {
+        let harness = try await readyController(
+            listWindowsBody: Self.twoSinglePaneWindows,
+            expectedPaneCount: 2
+        )
+
+        harness.controller.requestSelectWindow(windowID: 1)
+        await drain(harness.controller)
+        XCTAssertEqual(harness.recorder.takeStrings(), ["select-window -t @1\n"])
+
+        // Leave the selection reply and topology update pending during the resize.
+        harness.controller.setClientSize(
+            cols: 100,
+            rows: 40,
+            claimActiveViewport: true
+        )
+        await drain(harness.controller)
+
+        XCTAssertEqual(
+            harness.recorder.takeStrings(),
+            ["refresh-client -C 100x40\nselect-window\n"]
         )
     }
 
@@ -960,7 +984,7 @@ final class TmuxSessionControllerClientSizeTests: XCTestCase {
 
         XCTAssertEqual(
             harness.recorder.takeStrings(),
-            ["select-window -t @0\nnew-window\n"]
+            ["select-window\nnew-window\n"]
         )
     }
 

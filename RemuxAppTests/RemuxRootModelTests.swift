@@ -1,4 +1,5 @@
 import GhosttyKit
+import Combine
 import SwiftUI
 import UIKit
 import XCTest
@@ -26,6 +27,65 @@ extension SavedServer {
 
 @MainActor
 final class RemuxRootModelTests: XCTestCase {
+    func testRapidServerMovesAndLibraryReloadKeepLatestOrder() async throws {
+        let servers = ["Alpha", "Beta", "Gamma"].map {
+            SavedServer(displayName: $0, host: "server.example.test", username: "demo")
+        }
+        let harness = makeHarness(servers: servers)
+        await harness.model.load()
+        let firstOrder = [servers[1].id, servers[0].id, servers[2].id]
+        let lastOrder = [servers[2].id, servers[1].id, servers[0].id]
+        let started = expectation(description: "first save started")
+        let saved = expectation(description: "latest order saved")
+        let gate = AsyncStream<Void>.makeStream()
+        await harness.profileRepository.observeServerOrderSaves(before: { ids in
+            if ids == firstOrder {
+                started.fulfill()
+                for await _ in gate.stream { break }
+            }
+        }, after: { ids in
+            if ids == lastOrder { saved.fulfill() }
+        })
+        harness.model.moveServers(from: IndexSet(integer: 1), to: 0)
+        await fulfillment(of: [started], timeout: 5)
+        harness.model.moveServers(from: IndexSet(integer: 2), to: 0)
+        await harness.model.showLibrary()
+        XCTAssertEqual(harness.model.library.servers.map(\.id), lastOrder)
+        gate.continuation.yield(())
+        gate.continuation.finish()
+        await fulfillment(of: [saved], timeout: 5)
+        let snapshot = try await harness.profileRepository.loadSnapshot()
+        XCTAssertEqual(snapshot.servers.map(\.id), lastOrder)
+        XCTAssertEqual(harness.model.library.servers.map(\.id), lastOrder)
+    }
+
+    func testFailedServerOrderSaveKeepsArrangementAndCanRetry() async throws {
+        let servers = ["Alpha", "Beta"].map {
+            SavedServer(displayName: $0, host: "server.example.test", username: "demo")
+        }
+        let harness = makeHarness(servers: servers)
+        await harness.model.load()
+        let failed = expectation(description: "save failure presented")
+        let observation = harness.model.$serverOrderSaveFailed.filter { $0 }.sink { _ in failed.fulfill() }
+        defer { observation.cancel() }
+        await harness.profileRepository.observeServerOrderSaves(before: { _ in
+            throw CocoaError(.fileWriteNoPermission)
+        }, after: { _ in })
+        harness.model.moveServers(from: IndexSet(integer: 1), to: 0)
+        await fulfillment(of: [failed], timeout: 5)
+        await harness.model.showLibrary()
+        XCTAssertEqual(harness.model.library.servers, servers.reversed())
+        let unchanged = try await harness.profileRepository.loadSnapshot()
+        XCTAssertEqual(unchanged.servers, servers)
+        let saved = expectation(description: "retry saved")
+        await harness.profileRepository.observeServerOrderSaves(before: { _ in }, after: { _ in saved.fulfill() })
+        harness.model.retryServerOrderSave()
+        await fulfillment(of: [saved], timeout: 5)
+        let restored = try await harness.profileRepository.loadSnapshot()
+        XCTAssertEqual(restored.servers, servers.reversed())
+        XCTAssertFalse(harness.model.serverOrderSaveFailed)
+    }
+
     func testAppLifecycleProjectionMapsScenePhases() {
         XCTAssertEqual(RemuxAppLifecycleProjection(scenePhase: .active).appLifecyclePhase, .active)
         XCTAssertEqual(RemuxAppLifecycleProjection(scenePhase: .inactive).appLifecyclePhase, .inactive)
@@ -3189,7 +3249,7 @@ final class RemuxRootModelTests: XCTestCase {
         XCTAssertNil(credential)
     }
 
-    func testFailedStateStopsOwnedTerminalModels() async throws {
+    func testFailedSettingsSaveKeepsActiveTerminalAndPreviousSettings() async throws {
         let server = SavedServer(
             displayName: "Build Host",
             host: "build.example.test",
@@ -3218,19 +3278,24 @@ final class RemuxRootModelTests: XCTestCase {
         let session = try XCTUnwrap(harness.model.activeSessions.first)
         let terminalModel = harness.model.terminalScreenModel(for: session)
         await waitForConnecting(terminalModel)
+        let previousSettings = harness.model.terminalSettings
 
         await harness.model.updateTerminalSettings { settings in
             settings.fontSize = 19
         }
 
-        guard case .failed = harness.model.state else {
-            XCTFail("expected failed state")
-            return
-        }
-        XCTAssertTrue(harness.model.activeSessions.isEmpty)
-        XCTAssertTrue(harness.model.activeTerminalScreenEntries.isEmpty)
-        XCTAssertFalse(harness.model.hasTerminalScreenModel(for: session))
-        await waitForStopped(terminalModel)
+        XCTAssertEqual(harness.model.state, .terminal(workspace.id))
+        XCTAssertEqual(harness.model.terminalSettings, previousSettings)
+        XCTAssertEqual(harness.model.activeSessions.map(\.id), [workspace.id])
+        XCTAssertEqual(harness.model.activeTerminalScreenEntries.map(\.id), [workspace.id])
+        XCTAssertTrue(harness.model.hasTerminalScreenModel(for: session))
+        XCTAssertTrue(harness.model.terminalScreenModel(for: session) === terminalModel)
+        XCTAssertNotNil(terminalModel.session)
+        XCTAssertTrue(harness.model.terminalSettingsSaveFailed)
+
+        harness.model.dismissTerminalSettingsSaveFailure()
+
+        XCTAssertFalse(harness.model.terminalSettingsSaveFailed)
     }
 
     func testRuntimeDisconnectMarksActiveSessionDisconnected() async throws {
@@ -3785,8 +3850,26 @@ final class RemuxRootModelTests: XCTestCase {
         XCTAssertEqual(rsaRefreshedSession.instanceID, originalSession.instanceID)
         XCTAssertEqual(rsaRefreshedSession.target.terminalSettings, rsaUpdated)
         XCTAssertTrue(originalModel === harness.model.terminalScreenModel(for: rsaRefreshedSession))
+
+        var toolbarUpdated = rsaUpdated
+        toolbarUpdated.toolbarKeys = TerminalToolbarKeys(
+            first: .pageDown,
+            second: .control,
+            third: .home
+        )
+        await harness.model.updateTerminalSettings { settings in
+            settings = toolbarUpdated
+        }
+
+        let toolbarRefreshedSession = try XCTUnwrap(harness.model.activeSessions.first)
+        let toolbarEntry = try XCTUnwrap(harness.model.activeTerminalScreenEntries.first)
+        XCTAssertEqual(toolbarRefreshedSession.instanceID, originalSession.instanceID)
+        XCTAssertEqual(toolbarEntry.runtimeAttemptKey, originalKey)
+        XCTAssertEqual(toolbarEntry.presentation.toolbarKeys, toolbarUpdated.toolbarKeys)
+        XCTAssertTrue(originalModel === harness.model.terminalScreenModel(for: toolbarRefreshedSession))
+        XCTAssertEqual(factory.createdKeys, [originalKey])
         let savedSettings = try await harness.settingsRepository.loadSettings()
-        XCTAssertEqual(savedSettings, rsaUpdated)
+        XCTAssertEqual(savedSettings, toolbarUpdated)
     }
 
     private func makeHarness(
@@ -4622,18 +4705,36 @@ private actor TestConnectionProfileRepository: ConnectionProfileRepository {
         }
         let serverIDs = Set(servers.map(\.id))
         return ConnectionLibrarySnapshot(
-            servers: servers.sorted {
+            servers: serverOrder.isEmpty ? servers.sorted {
                 $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
-            },
+            } : servers,
             workspaces: workspaces.filter { serverIDs.contains($0.serverID) },
             identities: identities.sorted {
                 $0.name.localizedStandardCompare($1.name) == .orderedAscending
             }
-        )
+        ).orderingServers(by: serverOrder)
     }
 
     func loadProfile() async throws -> (SavedServer, SavedWorkspace)? {
         try await loadSnapshot().latestProfile
+    }
+
+    func saveServerOrder(_ ids: [SavedServer.ID]) async throws {
+        try await beforeServerOrderSave?(ids)
+        serverOrder = ids
+        afterServerOrderSave?(ids)
+    }
+
+    private var serverOrder: [SavedServer.ID] = []
+    private var beforeServerOrderSave: (@Sendable ([SavedServer.ID]) async throws -> Void)?
+    private var afterServerOrderSave: (@Sendable ([SavedServer.ID]) -> Void)?
+
+    func observeServerOrderSaves(
+        before: @escaping @Sendable ([SavedServer.ID]) async throws -> Void,
+        after: @escaping @Sendable ([SavedServer.ID]) -> Void
+    ) {
+        beforeServerOrderSave = before
+        afterServerOrderSave = after
     }
 
     func saveServer(_ server: SavedServer) async throws {

@@ -1,5 +1,6 @@
 import Combine
 import GhosttyKit
+import UIKit
 import XCTest
 
 @testable import Remux
@@ -979,6 +980,131 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         XCTAssertEqual(adapter.focusNextTmuxAgentTopLevel(), .missingTarget(.agentWindow))
 
         await session.shutdown()
+    }
+
+    func testPendingPaneSelectionUsesItsPresentationAndFailedSelectionRestoresReadyPane() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = TmuxTerminalSession(
+            app: runtime.appHandleForTesting,
+            transport: DeterministicTmuxControlTransport(chunks: []),
+            baseSurfaceConfig: { runtime.makeTmuxBaseSurfaceConfig() },
+            paneViewTheme: { .remuxDark }
+        )
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+        let measurement = try XCTUnwrap(runtime.measureTmuxViewportLayout(
+            size: CGSize(width: 390, height: 600), scale: UIScreen.main.scale
+        ))
+        session.updateViewportMeasurement(measurement)
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            session.controller.start(initialSize: .init(cols: 83, rows: 44)) {
+                continuation.resume(with: $0)
+            }
+        }
+        session.controller.pump(Data("%begin 1 1 0\n%end 1 1 0\n%session-changed $42 main\n".utf8))
+        await drain(session.controller)
+        let layout = "607b,83x44,0,0[83x22,0,0,0,83x21,0,23,1]"
+        session.controller.pump(Data((
+            "%begin 2 2 1\n3.1\n%end 2 2 1\n%begin 3 3 1\n%end 3 3 1\n"
+            + "%begin 4 4 1\n$42 @0 1 %0 83 44 \(layout) \(layout) test\n%end 4 4 1\n"
+        ).utf8))
+        await drain(session.controller)
+        let hydration = (5...13).map { "%begin \($0) \($0) 1\n%end \($0) \($0) 1\n" }.joined()
+        session.controller.pump(Data(hydration.utf8))
+        for _ in 0..<3 { await drain(session.controller) }
+        let firstPane = try XCTUnwrap(session.surfacesByPaneID[0])
+        let secondPane = try XCTUnwrap(session.surfacesByPaneID[1])
+        let window = UIWindow(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        let viewController = UIViewController()
+        window.rootViewController = viewController
+        viewController.view.addSubview(firstPane.view)
+        window.isHidden = false
+        defer { window.isHidden = true }
+        for _ in 0..<100 where firstPane.presentation != .ready {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        XCTAssertEqual(firstPane.presentation, .ready)
+        XCTAssertEqual(secondPane.presentation, .pending, "a hydrated unattached pane is not ready")
+        XCTAssertEqual(
+            TerminalReadinessProjector.runtimeState(adapter.terminalScreenPresentationProjection.readiness),
+            .connected
+        )
+        XCTAssertTrue(adapter.terminalInteractionProjection.isInputAvailable)
+
+        let secondSurfaceID = try XCTUnwrap(adapter.terminalScreenPresentationProjection.viewport.panes
+            .first(where: { adapter.tmuxPaneID(for: $0.id) == 1 })?.id)
+        _ = adapter.focusTmuxPane(secondSurfaceID)
+        let pending = adapter.terminalScreenPresentationProjection
+        XCTAssertEqual(pending.readiness.selectedActiveLeafID, secondSurfaceID)
+        XCTAssertEqual(pending.readiness.selectedPanePresentation, .pending)
+        XCTAssertEqual(TerminalReadinessProjector.runtimeState(pending.readiness), .connecting)
+        XCTAssertFalse(adapter.terminalInteractionProjection.isInputAvailable)
+        XCTAssertEqual(adapter.sendInputToFocusedSurface("must not be sent"), .surfaceRejected)
+        XCTAssertEqual(session.presentation(for: 0), .ready, "the first pane remains ready during pending selection")
+
+        session.handleRequestFailedForTesting(.selectPane)
+        let restored = adapter.terminalScreenPresentationProjection
+        XCTAssertEqual(adapter.tmuxPaneID(for: try XCTUnwrap(restored.readiness.selectedActiveLeafID)), 0)
+        XCTAssertEqual(restored.readiness.selectedPanePresentation, .ready)
+        XCTAssertEqual(TerminalReadinessProjector.runtimeState(restored.readiness), .connected)
+        XCTAssertTrue(adapter.terminalInteractionProjection.isInputAvailable)
+
+        adapter.invalidate()
+        await session.shutdown()
+    }
+
+    func testSelectedPaneFailureOverridesCommandFailureWithoutAnotherSelectionInheritingIt() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+        session.handleTopology(topology(zoomed: false, activePaneID: 10, paneCount: 2))
+        session.handleStateForTesting(.ready)
+        session.handleRendererFailureForTesting(11)
+        XCTAssertEqual(adapter.terminalScreenPresentationProjection.readiness.selectedPanePresentation, .pending)
+        XCTAssertEqual(
+            TerminalReadinessProjector.runtimeState(adapter.terminalScreenPresentationProjection.readiness),
+            .connecting
+        )
+
+        session.handleRequestFailedForTesting(.splitPane)
+        session.handleTopology(topology(zoomed: false, activePaneID: 11, paneCount: 2))
+        let failed = adapter.terminalScreenPresentationProjection
+        guard case .failed(let reason) = failed.readiness.selectedPanePresentation else {
+            adapter.invalidate()
+            await session.shutdown()
+            return XCTFail("the selected pane's missing renderer must expose a repairable failure")
+        }
+        XCTAssertEqual(reason.kind, .runtime)
+        XCTAssertEqual(failed.statusOverlay, .failed(message: reason.message, reason: reason))
+        XCTAssertEqual(TerminalReadinessProjector.runtimeState(failed.readiness), .disconnected(reason))
+        XCTAssertFalse(adapter.terminalInteractionProjection.isInputAvailable)
+
+        session.handleTopology(topology(zoomed: false, activePaneID: 10, paneCount: 2))
+        XCTAssertEqual(adapter.terminalScreenPresentationProjection.readiness.selectedPanePresentation, .pending)
+        XCTAssertEqual(
+            TerminalReadinessProjector.runtimeState(adapter.terminalScreenPresentationProjection.readiness),
+            .connecting,
+            "presentation failures belong to the selected pane, not the entire control connection"
+        )
+        adapter.invalidate()
+        await session.shutdown()
+    }
+
+    private func drain(_ controller: TmuxSessionController) async {
+        await withCheckedContinuation { continuation in
+            controller.queue.async {
+                DispatchQueue.main.async { continuation.resume() }
+            }
+        }
     }
 }
 

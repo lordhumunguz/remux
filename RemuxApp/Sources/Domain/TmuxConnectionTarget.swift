@@ -308,8 +308,8 @@ enum TerminalReconnectSource: Equatable, Hashable, Sendable {
 
 // Root-visible terminal state for library display and reconnect policy.
 // `.connected` is produced from the current runtime/readiness contract:
-// running plus a focused surface. It is not the input-ready gate and does not
-// require writable transport.
+// writable protocol attachment plus a hydrated selected pane with an available,
+// attached renderer that has published its first frame.
 enum TerminalRuntimeState: Equatable, Sendable {
     case connecting
     case reconnecting(TerminalReconnectSource)

@@ -11,6 +11,7 @@ struct GhosttySurfaceScreenPresentation: Equatable {
     let sessionName: String
     let terminalTheme: TerminalTheme
     let optionAsAlt: Bool
+    let toolbarKeys: TerminalToolbarKeys
     let loadingTitle: String
 }
 
@@ -429,6 +430,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                             isInteractionLocked: composer.isSubmitting,
                             isCompact: chrome.isCompact,
                             isControlArmed: terminalInputController.isControlArmed,
+                            toolbarKeys: presentation.toolbarKeys,
                             selectedWindowIndex: interactionProjection.selectedWindowIndex,
                             windowCount: interactionProjection.windowCount,
                             paneCount: interactionProjection.paneCount,
@@ -471,6 +473,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 GhosttyRuntimeTrace.tmuxViewport(
                     "viewport.bottomChrome old=\(previousHeight.traceLabel) new=\(bottomChromeReservation.settledHeight.traceLabel) rendered=\(renderedHeight.traceLabel) keyboardMode=\(inputCoordinator.keyboardMode.traceLabel) renderedMode=\(renderedKeyboardMode.traceLabel) softwareKeyboardVisible=\(inputCoordinator.isSoftwareKeyboardVisible) overlap=\(softwareKeyboardOverlapHeight.traceLabel)"
                 )
+            }
+            .onChange(of: presentation.toolbarKeys) { _, toolbarKeys in
+                terminalInputController.reconcileToolbarKeys(toolbarKeys)
             }
             .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) {
                 guard shouldHandleTerminalKeyboardNotification else { return }
@@ -534,25 +539,30 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                     )
                     .presentationContentInteraction(.scrolls)
                     .presentationDragIndicator(.hidden)
-                    .terminalSelectionSheetPresentationBackground()
+                    .remuxSheetPresentationBackground()
                     .ghosttyTerminalChromePresentation(
                         presentation.terminalTheme.terminalChromeColorScheme,
                         chromeStyle: presentation.terminalTheme.terminalChromeStyle
                     )
             }
             .sheet(isPresented: $isShortcutsSettingsPresented) {
-                ShortcutsSettingsSheet(store: shortcutStore)
+                ShortcutsSettingsSheet(
+                    store: shortcutStore,
+                    theme: presentation.terminalTheme
+                )
                     .presentationDetents([.large])
                     .presentationDragIndicator(.visible)
-                    .presentationBackground(.regularMaterial)
-                    .presentationCornerRadius(28)
+                    .remuxSheetPresentationBackground()
                     .ghosttyTerminalChromePresentation(
                         presentation.terminalTheme.terminalChromeColorScheme,
                         chromeStyle: presentation.terminalTheme.terminalChromeStyle
                     )
             }
             .sheet(item: $shortcutEditorRequest) { request in
-                ShortcutEditorSheet(request: request) { shortcut, favorite in
+                ShortcutEditorSheet(
+                    request: request,
+                    theme: presentation.terminalTheme
+                ) { shortcut, favorite in
                     shortcutStore.update {
                         $0.upsertShortcut(shortcut)
                         if favorite {
@@ -562,8 +572,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 }
                 .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
-                .presentationBackground(.regularMaterial)
-                .presentationCornerRadius(28)
+                .remuxSheetPresentationBackground()
                 .ghosttyTerminalChromePresentation(
                     presentation.terminalTheme.terminalChromeColorScheme,
                     chromeStyle: presentation.terminalTheme.terminalChromeStyle
@@ -576,7 +585,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 )
                 .presentationDetents([.large])
                 .presentationDragIndicator(.visible)
-                .terminalSelectionSheetPresentationBackground()
+                .remuxSheetPresentationBackground()
                 .ghosttyTerminalChromePresentation(
                     presentation.terminalTheme.terminalChromeColorScheme,
                     chromeStyle: presentation.terminalTheme.terminalChromeStyle
@@ -702,7 +711,10 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
     }
 
     private var isTransientInputOwnerPresented: Bool {
-        isAttachmentInputOwnerPresented || terminalCoverPhase.ownsTerminalInput
+        isAttachmentInputOwnerPresented
+            || isShortcutsSettingsPresented
+            || shortcutEditorRequest != nil
+            || terminalCoverPhase.ownsTerminalInput
     }
 
     private var selectionSheetBinding: Binding<GhosttySurfaceSelectionSheet?> {

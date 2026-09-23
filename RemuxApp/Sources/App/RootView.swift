@@ -214,7 +214,7 @@ private struct RemuxWorkspaceShell: View {
                 onRefresh: model.refreshTmuxSessions,
                 discoveryStates: model.tmuxSessionDiscoveryStates
             )
-            .terminalSelectionSheetPresentationBackground()
+            .remuxSheetPresentationBackground()
             .ghosttyTerminalChromePresentation(
                 model.terminalSettings.theme.terminalChromeColorScheme,
                 chromeStyle: model.terminalSettings.theme.terminalChromeStyle
@@ -244,6 +244,26 @@ private struct RemuxWorkspaceShell: View {
         .sheet(isPresented: serverImportSheetIsPresented) {
             serverImportSheet
         }
+        .alert(
+            "Settings Couldn’t Be Saved",
+            isPresented: terminalSettingsSaveFailureIsPresented
+        ) {
+            Button("OK", role: .cancel) {
+                model.dismissTerminalSettingsSaveFailure()
+            }
+        } message: {
+            Text("Your previous settings are still in use. Try again.")
+        }
+    }
+
+    private var terminalSettingsSaveFailureIsPresented: Binding<Bool> {
+        Binding(
+            get: { model.terminalSettingsSaveFailed },
+            set: { isPresented in
+                guard !isPresented else { return }
+                model.dismissTerminalSettingsSaveFailure()
+            }
+        )
     }
 
     private var serverImportSheetIsPresented: Binding<Bool> {
@@ -397,7 +417,7 @@ private struct RemuxWorkspaceShell: View {
             }
             .presentationDetents(presentationDetents(for: setup.mode))
             .presentationDragIndicator(.visible)
-            .terminalSelectionSheetPresentationBackground()
+            .remuxSheetPresentationBackground()
             .ghosttyTerminalChromePresentation(
                 model.terminalSettings.theme.terminalChromeColorScheme,
                 chromeStyle: model.terminalSettings.theme.terminalChromeStyle
@@ -672,6 +692,7 @@ private struct RemuxWorkspaceShell: View {
                 discoveryStates: model.tmuxSessionDiscoveryStates,
                 serverResponsiveAccordionDetected: model.serverResponsiveAccordionDetected,
                 terminalSettings: terminalSettingsBinding,
+                shortcutStore: shortcutStore,
                 presentedServerID: $presentedServerID,
                 onAddServer: model.beginNewServer,
                 onImportServers: handleImportServers,
@@ -710,6 +731,7 @@ private struct RemuxWorkspaceShell: View {
                     model.showActiveSession(workspaceID)
                 },
                 onDisconnectActiveSession: model.disconnectActiveSession,
+                onMoveServers: model.moveServers,
                 onDeleteServer: { serverID in
                     Task { await model.deleteServer(serverID) }
                 },
@@ -732,6 +754,15 @@ private struct RemuxWorkspaceShell: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(serverImportError ?? "")
+        }
+        .alert("Server Order Couldn’t Be Saved", isPresented: Binding(
+            get: { model.serverOrderSaveFailed },
+            set: { if !$0 { model.dismissServerOrderSaveFailure() } }
+        )) {
+            Button("Retry", action: model.retryServerOrderSave)
+            Button("Cancel", role: .cancel, action: model.dismissServerOrderSaveFailure)
+        } message: {
+            Text("Your order is still shown, but may be lost when you close Remux. Try saving it again.")
         }
     }
 
@@ -1029,6 +1060,7 @@ private struct ConnectionLibraryView: View {
     let discoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState]
     let serverResponsiveAccordionDetected: Bool
     @Binding var terminalSettings: TerminalSettings
+    let shortcutStore: ShortcutStore
     @Binding var presentedServerID: SavedServer.ID?
     let onAddServer: () -> Void
     let onImportServers: (ServerImportSource) -> Void
@@ -1041,11 +1073,13 @@ private struct ConnectionLibraryView: View {
     let onTrustDiscoveryHostKey: (SSHHostKeyTrustChallenge) -> Void
     let onShowActiveSession: (SavedWorkspace.ID) -> Void
     let onDisconnectActiveSession: (SavedWorkspace.ID) -> Void
+    let onMoveServers: (IndexSet, Int) -> Void
     let onDeleteServer: (SavedServer.ID) -> Void
     let onDeleteWorkspace: (SavedWorkspace.ID) -> Void
 
     @State private var showsAllConnectedSessions = false
     @State private var showsAllRecentSessions = false
+    @State private var serverEditMode: EditMode = .inactive
 
     var body: some View {
         let sessionProjection = SessionSwitcherProjection(
@@ -1065,6 +1099,7 @@ private struct ConnectionLibraryView: View {
                     recentSessionsSection
                 }
                 .listStyle(.insetGrouped)
+                .environment(\.editMode, $serverEditMode)
                 .accessibilityIdentifier("library.list")
             }
         }
@@ -1076,12 +1111,16 @@ private struct ConnectionLibraryView: View {
             GhosttyKitRuntime.prewarmTerminalRenderer(terminalSettings: terminalSettings)
         }
         .navigationTitle("Remux")
+        .onChange(of: snapshot.servers.count) { _, count in
+            if count < 2 { serverEditMode = .inactive }
+        }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarLeading) {
                 NavigationLink {
                     TerminalSettingsView(
                         settings: $terminalSettings,
+                        shortcutStore: shortcutStore,
                         serverAccordionLayoutDetected: serverResponsiveAccordionDetected
                     )
                 } label: {
@@ -1306,8 +1345,27 @@ private struct ConnectionLibraryView: View {
                 }
                 .libraryHomeListRowSurface()
             }
+            .onMove(perform: onMoveServers)
         } header: {
-            LibraryHomeSectionHeader("Servers")
+            HStack {
+                LibraryHomeSectionHeader("Servers")
+                Spacer()
+                if snapshot.servers.count > 1 {
+                    Button {
+                        withAnimation {
+                            serverEditMode = serverEditMode.isEditing ? .inactive : .active
+                        }
+                    } label: {
+                        Text(serverEditMode.isEditing ? "Done" : "Reorder")
+                            .frame(minWidth: 44, minHeight: 44)
+                    }
+                    .font(.subheadline)
+                    .textCase(nil)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityLabel(serverEditMode.isEditing ? "Done Reordering Servers" : "Reorder Servers")
+                    .accessibilityIdentifier("library.servers.edit")
+                }
+            }
         }
     }
 
@@ -1399,50 +1457,12 @@ private struct ConnectionLibraryView: View {
     }
 }
 
-private enum LibraryHomePalette {
-    static let background = Color(uiColor: .libraryHomeBackground)
-    static let rowSurface = Color(uiColor: .libraryHomeRowSurface)
-    static let separator = Color(uiColor: .libraryHomeSeparator)
-    static let sectionHeader = Color(uiColor: .libraryHomeSectionHeader)
-    static let toolbarTint = Color(uiColor: .libraryHomeToolbarTint)
-    static let controlAccent = Color(uiColor: .libraryHomeControlAccent)
-    static let rowIconForeground = Color(uiColor: .libraryHomeRowIconForeground)
-    static let rowIconSurface = Color(uiColor: .libraryHomeRowIconSurface)
-}
-
-private extension TerminalTheme {
-    var libraryColorScheme: ColorScheme {
-        switch self {
-        case .remuxLight:
-            .light
-        case .ghosttyDefault, .remuxDark, .tokyoNight:
-            .dark
-        }
-    }
-}
 
 private extension View {
-    func libraryHomeListRowSurface() -> some View {
-        listRowBackground(LibraryHomePalette.rowSurface)
-            .listRowSeparatorTint(LibraryHomePalette.separator)
-    }
-
-    func libraryHomeChrome(theme: TerminalTheme) -> some View {
-        preferredColorScheme(theme.libraryColorScheme)
-            .tint(LibraryHomePalette.toolbarTint)
-            .toolbarBackground(LibraryHomePalette.background, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-    }
-
-    func libraryHomeGroupedScrollBackground() -> some View {
-        scrollContentBackground(.hidden)
-            .background(LibraryHomePalette.background.ignoresSafeArea())
-    }
-
     @ViewBuilder
     func connectionSetupListRowSurface(usesLibraryChrome: Bool) -> some View {
         if usesLibraryChrome {
-            libraryHomeListRowSurface()
+            remuxAppListRowSurface()
         } else {
             listRowBackground(Color.clear)
                 .listRowSeparatorTint(TerminalSelectionSheetPalette.stroke)
@@ -1455,8 +1475,8 @@ private extension View {
         theme: TerminalTheme
     ) -> some View {
         if usesLibraryChrome {
-            libraryHomeGroupedScrollBackground()
-                .libraryHomeChrome(theme: theme)
+            remuxAppGroupedScrollBackground()
+                .remuxAppChrome(theme: theme)
         } else {
             scrollContentBackground(.hidden)
         }
@@ -1478,83 +1498,6 @@ private struct LibraryHomeSectionHeader: View {
     }
 }
 
-private extension UIColor {
-    // Dark variants are the Tokyo Night family so Remux's own chrome matches
-    // the terminal palette: bg #1a1b26, card #24283b, fg #c0caf5, muted
-    // #a9b1d6, accent #7aa2f7.
-    static let libraryHomeBackground = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.102, green: 0.106, blue: 0.149, alpha: 1.0)
-        default:
-            .systemGroupedBackground
-        }
-    }
-
-    static let libraryHomeRowSurface = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.141, green: 0.157, blue: 0.231, alpha: 1.0)
-        default:
-            .secondarySystemGroupedBackground
-        }
-    }
-
-    static let libraryHomeSeparator = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor.white.withAlphaComponent(0.08)
-        default:
-            .separator
-        }
-    }
-
-    static let libraryHomeSectionHeader = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.663, green: 0.694, blue: 0.839, alpha: 1.0)
-        default:
-            .secondaryLabel
-        }
-    }
-
-    static let libraryHomeToolbarTint = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.753, green: 0.792, blue: 0.961, alpha: 1.0)
-        default:
-            .label
-        }
-    }
-
-    static let libraryHomeControlAccent = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.478, green: 0.635, blue: 0.969, alpha: 1.0)
-        default:
-            .systemBlue
-        }
-    }
-
-    static let libraryHomeRowIconForeground = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor(red: 0.663, green: 0.694, blue: 0.839, alpha: 1.0)
-        default:
-            .secondaryLabel
-        }
-    }
-
-    static let libraryHomeRowIconSurface = UIColor { traits in
-        switch traits.userInterfaceStyle {
-        case .dark:
-            UIColor.white.withAlphaComponent(0.07)
-        default:
-            .tertiarySystemFill
-        }
-    }
-
-}
 
 private struct ServerDetailView: View {
     private static let collapsedWorkspaceCount = 3
@@ -2150,11 +2093,17 @@ private func serverSummary(
 
 private struct TerminalSettingsView: View {
     @Binding private var sourceSettings: TerminalSettings
+    private let shortcutStore: ShortcutStore
     @State private var settings: TerminalSettings
     private let serverAccordionLayoutDetected: Bool
 
-    init(settings: Binding<TerminalSettings>, serverAccordionLayoutDetected: Bool = false) {
+    init(
+        settings: Binding<TerminalSettings>,
+        shortcutStore: ShortcutStore,
+        serverAccordionLayoutDetected: Bool = false
+    ) {
         _sourceSettings = settings
+        self.shortcutStore = shortcutStore
         _settings = State(initialValue: settings.wrappedValue)
         self.serverAccordionLayoutDetected = serverAccordionLayoutDetected
     }
@@ -2198,21 +2147,6 @@ private struct TerminalSettingsView: View {
             .libraryHomeListRowSurface()
 
             Section {
-                Toggle("Option sends Alt", isOn: optionAsAltBinding)
-                    .tint(LibraryHomePalette.controlAccent)
-                    .accessibilityIdentifier("settings.option-as-alt")
-            } header: {
-                Text("Keyboard")
-            } footer: {
-                Text(
-                    "Hardware keyboards only: Option acts as Meta, sending ESC before the key "
-                        + "(for tmux bindings like M-g or M-1), like desktop Ghostty's "
-                        + "macos-option-as-alt. Off keeps Option's composed characters."
-                )
-            }
-            .libraryHomeListRowSurface()
-
-            Section {
                 Toggle(
                     "Zoom multipane windows",
                     isOn: zoomMultipaneWindowsByDefaultBinding
@@ -2236,6 +2170,49 @@ private struct TerminalSettingsView: View {
                             + "it applied when closing. If one remains on the server, use prefix + z."
                     )
                 }
+            }
+            .libraryHomeListRowSurface()
+
+            Section {
+                NavigationLink {
+                    TerminalToolbarKeysSettingsView(
+                        toolbarKeys: toolbarKeysBinding,
+                        theme: settings.theme
+                    )
+                } label: {
+                    Label {
+                        LabeledContent("Toolbar Keys") {
+                            Text(settings.toolbarKeys.compactSummary)
+                                .foregroundStyle(.secondary)
+                        }
+                    } icon: {
+                        Image(systemName: "keyboard.badge.ellipsis")
+                    }
+                }
+                .accessibilityIdentifier("settings.toolbar-keys")
+                .accessibilityValue(settings.toolbarKeys.summary)
+
+                NavigationLink {
+                    ShortcutsSettingsView(
+                        store: shortcutStore,
+                        theme: settings.theme
+                    )
+                } label: {
+                    Label("Shortcuts", systemImage: "keyboard")
+                }
+                .accessibilityIdentifier("settings.shortcuts")
+
+                Toggle("Option sends Alt", isOn: optionAsAltBinding)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityIdentifier("settings.option-as-alt")
+            } header: {
+                Text("Keyboard")
+            } footer: {
+                Text(
+                    "Hardware keyboards only: Option acts as Meta, sending ESC before the key "
+                        + "(for tmux bindings like M-g or M-1), like desktop Ghostty's "
+                        + "macos-option-as-alt. Off keeps Option's composed characters."
+                )
             }
             .libraryHomeListRowSurface()
 
@@ -2320,13 +2297,97 @@ private struct TerminalSettingsView: View {
             }
         )
     }
-
     private var optionAsAltBinding: Binding<Bool> {
         Binding(
             get: { settings.optionAsAlt },
             set: { value in
                 settings.optionAsAlt = value
                 sourceSettings = settings
+            }
+        )
+    }
+
+    private var toolbarKeysBinding: Binding<TerminalToolbarKeys> {
+        Binding(
+            get: { settings.toolbarKeys },
+            set: { value in
+                settings.toolbarKeys = value
+                sourceSettings = settings
+            }
+        )
+    }
+}
+
+private struct TerminalToolbarKeysSettingsView: View {
+    @Binding var toolbarKeys: TerminalToolbarKeys
+    let theme: TerminalTheme
+
+    var body: some View {
+        Form {
+            Section {
+                toolbarKeyPicker(
+                    "First Key",
+                    selection: binding(for: \.first),
+                    identifier: "settings.toolbar-keys.slot.0"
+                )
+                toolbarKeyPicker(
+                    "Second Key",
+                    selection: binding(for: \.second),
+                    identifier: "settings.toolbar-keys.slot.1"
+                )
+                toolbarKeyPicker(
+                    "Third Key",
+                    selection: binding(for: \.third),
+                    identifier: "settings.toolbar-keys.slot.2"
+                )
+            } header: {
+                Text("Key Layout")
+            } footer: {
+                Text(
+                    "These keys appear on the left side of the terminal toolbar. "
+                        + "Touch and hold the first key to open Shortcuts."
+                )
+            }
+            .libraryHomeListRowSurface()
+
+            if toolbarKeys != .default {
+                Section {
+                    Button("Reset to Defaults") {
+                        toolbarKeys = .default
+                    }
+                    .accessibilityIdentifier("settings.toolbar-keys.reset")
+                }
+                .libraryHomeListRowSurface()
+            }
+        }
+        .libraryHomeGroupedScrollBackground()
+        .libraryHomeChrome(theme: theme)
+        .navigationTitle("Toolbar Keys")
+        .navigationBarTitleDisplayMode(.inline)
+        .accessibilityIdentifier("settings.toolbar-keys.form")
+    }
+
+    private func toolbarKeyPicker(
+        _ title: String,
+        selection: Binding<TerminalToolbarKey>,
+        identifier: String
+    ) -> some View {
+        Picker(title, selection: selection) {
+            ForEach(TerminalToolbarKey.allCases, id: \.self) { key in
+                Text(key.settingsTitle).tag(key)
+            }
+        }
+        .pickerStyle(.navigationLink)
+        .accessibilityIdentifier(identifier)
+    }
+
+    private func binding(
+        for keyPath: WritableKeyPath<TerminalToolbarKeys, TerminalToolbarKey>
+    ) -> Binding<TerminalToolbarKey> {
+        Binding(
+            get: { toolbarKeys[keyPath: keyPath] },
+            set: { value in
+                toolbarKeys[keyPath: keyPath] = value
             }
         )
     }

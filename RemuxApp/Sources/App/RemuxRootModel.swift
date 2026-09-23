@@ -1,5 +1,6 @@
 import Combine
 import Foundation
+import SwiftUI
 
 enum SSHPublicKeyInstallDraftError: Error, Equatable, LocalizedError {
     case invalidHost
@@ -101,6 +102,7 @@ struct ActiveTerminalScreenEntry: Identifiable {
             sessionName: session.target.workspace.sessionName,
             terminalTheme: session.target.terminalSettings.theme,
             optionAsAlt: session.target.terminalSettings.optionAsAlt,
+            toolbarKeys: session.target.terminalSettings.toolbarKeys,
             loadingTitle: TerminalRuntimeStatusPresentation.projection(
                 for: session.runtimeState
             ).loadingTitle ?? TerminalRuntimeStatusPresentation.defaultLoadingTitle
@@ -295,7 +297,9 @@ final class RemuxRootModel: ObservableObject {
     }
     @Published private(set) var connectionSetup: ConnectionSetupState?
     @Published private(set) var library: ConnectionLibrarySnapshot = .empty
+    @Published private(set) var serverOrderSaveFailed = false
     @Published private(set) var terminalSettings: TerminalSettings = .default
+    @Published private(set) var terminalSettingsSaveFailed = false
     @Published private(set) var activeSessions: [ActiveTerminalSession] = []
     @Published private(set) var isSetupActionInProgress = false
     @Published private(set) var tmuxSessionDiscoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState] = [:]
@@ -335,6 +339,10 @@ final class RemuxRootModel: ObservableObject {
     private var tmuxSessionRefreshes: [SavedServer.ID: TmuxSessionRefresh] = [:]
     private var seatProbeTask: Task<Bool, Never>?
     private var responsiveAccordionObservations: [TerminalRuntimeAttemptKey: AnyCancellable] = [:]
+    // Keep the user's order across library reloads, including reads started before a move.
+    private var preferredServerOrder: [SavedServer.ID]?
+    private var pendingServerOrder: [SavedServer.ID]?
+    private var isSavingServerOrder = false
 
     init(
         dependencies: RemuxAppDependencies,
@@ -379,7 +387,7 @@ final class RemuxRootModel: ObservableObject {
             let library = try await dependencies.profileRepository.loadSnapshot()
             guard setupAllowsLibraryReload else { return }
             self.terminalSettings = terminalSettings
-            self.library = library
+            updateLibrary(library)
             state = .library
             scheduleLibrarySSHPrewarm(snapshot: library)
             scheduleLaunchTmuxSessionDiscovery()
@@ -397,7 +405,7 @@ final class RemuxRootModel: ObservableObject {
             let library = try await dependencies.profileRepository.loadSnapshot()
             guard setupAllowsLibraryReload else { return }
             self.terminalSettings = terminalSettings
-            self.library = library
+            updateLibrary(library)
             state = .library
             scheduleLibrarySSHPrewarm(snapshot: library)
         } catch {
@@ -408,6 +416,43 @@ final class RemuxRootModel: ObservableObject {
 
     private var setupAllowsLibraryReload: Bool {
         activeSetupAction == nil && currentSetupID == nil && connectionSetup == nil
+    }
+
+    private func updateLibrary(_ snapshot: ConnectionLibrarySnapshot) {
+        library = preferredServerOrder.map { snapshot.orderingServers(by: $0) } ?? snapshot
+    }
+
+    func moveServers(from offsets: IndexSet, to destination: Int) {
+        var ids = library.servers.map(\.id)
+        ids.move(fromOffsets: offsets, toOffset: destination)
+        guard ids != library.servers.map(\.id) else { return }
+        preferredServerOrder = ids
+        updateLibrary(library)
+        retryServerOrderSave()
+    }
+
+    func dismissServerOrderSaveFailure() {
+        serverOrderSaveFailed = false
+    }
+
+    func retryServerOrderSave() {
+        guard let preferredServerOrder else { return }
+        serverOrderSaveFailed = false
+        pendingServerOrder = preferredServerOrder
+        guard !isSavingServerOrder else { return }
+        isSavingServerOrder = true
+        Task {
+            while let order = pendingServerOrder {
+                pendingServerOrder = nil
+                do {
+                    try await dependencies.profileRepository.saveServerOrder(order)
+                    serverOrderSaveFailed = false
+                } catch {
+                    serverOrderSaveFailed = pendingServerOrder == nil
+                }
+            }
+            isSavingServerOrder = false
+        }
     }
 
     func beginNewServer() {
@@ -816,7 +861,7 @@ final class RemuxRootModel: ObservableObject {
             savedIdentity = true
             try await dependencies.profileRepository.saveServer(server)
             savedServer = true
-            library = try await dependencies.profileRepository.loadSnapshot()
+            updateLibrary(try await dependencies.profileRepository.loadSnapshot())
             guard isCurrentSetupAction(action) else { return nil }
             tmuxSessionDiscoveryStates[server.id] = TmuxSessionDiscoveryState.idle
                 .finishingRefresh(
@@ -939,7 +984,7 @@ final class RemuxRootModel: ObservableObject {
                 }
                 let library = try await dependencies.profileRepository.loadSnapshot()
                 guard isCurrentSetupAction(action) else { return }
-                self.library = library
+                updateLibrary(library)
                 let updatedSSHAuth = try await resolveSSHAuth(for: server)
                 guard isCurrentSetupAction(action) else { return }
                 closePreparedTransports(forServerID: server.id)
@@ -968,7 +1013,7 @@ final class RemuxRootModel: ObservableObject {
                 guard isCurrentSetupAction(action) else { return }
                 let reloadedLibrary = try await dependencies.profileRepository.loadSnapshot()
                 guard isCurrentSetupAction(action) else { return }
-                self.library = reloadedLibrary
+                updateLibrary(reloadedLibrary)
                 finishSetupSession(action.setupID)
                 activate(
                     server: server,
@@ -1081,7 +1126,7 @@ final class RemuxRootModel: ObservableObject {
 
                 cancelLibrarySSHPrewarm()
                 try await dependencies.profileRepository.saveWorkspace(submission.workspace)
-                library = try await dependencies.profileRepository.loadSnapshot()
+                updateLibrary(try await dependencies.profileRepository.loadSnapshot())
 
                 let sshAuth = try await resolveSSHAuth(for: server)
 
@@ -1121,7 +1166,7 @@ final class RemuxRootModel: ObservableObject {
                 }
 
                 try await dependencies.profileRepository.saveWorkspace(workspace)
-                library = try await dependencies.profileRepository.loadSnapshot()
+                updateLibrary(try await dependencies.profileRepository.loadSnapshot())
                 closePreparedTransport(for: workspace.id)
                 RemuxActiveSessionCollection.refreshWorkspace(
                     workspace,
@@ -1307,7 +1352,7 @@ final class RemuxRootModel: ObservableObject {
                     "session": openedWorkspace.sessionName,
                 ]
             )
-            library = try await dependencies.profileRepository.loadSnapshot()
+            updateLibrary(try await dependencies.profileRepository.loadSnapshot())
             GhosttyRuntimeTrace.flowEvent(flow, event: "model.connect.libraryReloaded")
         } catch {
             // The session is already active; failing to persist
@@ -1588,7 +1633,7 @@ final class RemuxRootModel: ObservableObject {
             dependencies.closeIdleSSHConnections(forServerID: id)
             stopTerminalScreenModels(serverID: id)
             RemuxActiveSessionCollection.removeServer(id, from: &activeSessions)
-            library = snapshot
+            updateLibrary(snapshot)
             state = .library
             scheduleLibrarySSHPrewarm(snapshot: library)
         } catch {
@@ -1602,7 +1647,7 @@ final class RemuxRootModel: ObservableObject {
             closePreparedTransport(for: id)
             stopTerminalScreenModels(workspaceID: id)
             RemuxActiveSessionCollection.removeWorkspace(id, from: &activeSessions)
-            library = try await dependencies.profileRepository.loadSnapshot()
+            updateLibrary(try await dependencies.profileRepository.loadSnapshot())
             state = .library
             scheduleLibrarySSHPrewarm(snapshot: library)
         } catch {
@@ -1636,23 +1681,32 @@ final class RemuxRootModel: ObservableObject {
     }
 
     func updateTerminalSettings(_ mutation: (inout TerminalSettings) -> Void) async {
+        var updated = terminalSettings
+        mutation(&updated)
+
         do {
-            var updated = terminalSettings
-            mutation(&updated)
             try await dependencies.settingsRepository.saveSettings(updated)
-            terminalSettings = updated
-            dependencies.applyHostKeyPolicy(allowInsecureRSA: updated.allowInsecureRSAHostKeys)
-            try applyTerminalSettingsToActiveSessions(updated)
         } catch {
-            transitionToFailed(error)
+            NSLog("Remux terminal settings save failed: %@", String(describing: error))
+            terminalSettingsSaveFailed = true
+            return
         }
+
+        terminalSettingsSaveFailed = false
+        terminalSettings = updated
+        dependencies.applyHostKeyPolicy(allowInsecureRSA: updated.allowInsecureRSAHostKeys)
+        applyTerminalSettingsToActiveSessions(updated)
+    }
+
+    func dismissTerminalSettingsSaveFailure() {
+        terminalSettingsSaveFailed = false
     }
 
     func makeTransport(for target: TmuxConnectionTarget) -> any TmuxControlTransport {
         preparedTransportCoordinator.claimOrCreateTransport(for: target)
     }
 
-    private func applyTerminalSettingsToActiveSessions(_ settings: TerminalSettings) throws {
+    private func applyTerminalSettingsToActiveSessions(_ settings: TerminalSettings) {
         RemuxActiveSessionCollection.refreshTerminalSettings(
             settings,
             in: &activeSessions
@@ -1661,7 +1715,11 @@ final class RemuxRootModel: ObservableObject {
         for session in activeSessions {
             let key = TerminalRuntimeAttemptKey(session: session)
             guard let model = terminalScreenModels[key] else { continue }
-            try model.applyTerminalSettings(settings)
+            do {
+                try model.applyTerminalSettings(settings)
+            } catch {
+                NSLog("Remux terminal settings apply failed: %@", String(describing: error))
+            }
         }
     }
 
