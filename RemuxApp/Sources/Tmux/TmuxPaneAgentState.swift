@@ -43,6 +43,8 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
     var gitBranch: String?
     var gitRepo: String?
     var agentModel: String?
+    var agentTool: String?
+    var quotaPercent: Int?
 
     static let idle = TmuxPaneAgentInfo(state: .idle)
 
@@ -50,12 +52,16 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
         state: TmuxPaneAgentState,
         gitBranch: String? = nil,
         gitRepo: String? = nil,
-        agentModel: String? = nil
+        agentModel: String? = nil,
+        agentTool: String? = nil,
+        quotaPercent: Int? = nil
     ) {
         self.state = state
         self.gitBranch = gitBranch
         self.gitRepo = gitRepo
         self.agentModel = agentModel
+        self.agentTool = agentTool
+        self.quotaPercent = quotaPercent
     }
 }
 
@@ -75,6 +81,8 @@ enum TmuxPaneAgentMetadata {
         "#{@pane_git_branch}",
         "#{@pane_git_repo}",
         "#{@pane_agent_model}",
+        "#{@pane_agent_tool}",
+        "#{@pane_agent_pct}",
     ].joined(separator: fieldSeparator)
 
     static let listPanesCommand = "list-panes -s -F '\(formatString)'"
@@ -108,10 +116,42 @@ enum TmuxPaneAgentMetadata {
                 state: state,
                 gitBranch: fields.count > 4 ? nilIfEmpty(fields[4]) : nil,
                 gitRepo: fields.count > 5 ? nilIfEmpty(fields[5]) : nil,
-                agentModel: fields.count > 6 ? nilIfEmpty(fields[6]) : nil
+                agentModel: fields.count > 6 ? nilIfEmpty(fields[6]) : nil,
+                agentTool: fields.count > 7 ? nilIfEmpty(fields[7]) : nil,
+                quotaPercent: fields.count > 8 ? parseQuotaPercent(fields[8]) : nil
             )
         }
         return infos
+    }
+
+    static func parseQuotaPercent(_ field: some StringProtocol) -> Int? {
+        let trimmed = field.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        var text = trimmed
+        if text.hasPrefix("W") || text.hasPrefix("w") {
+            text.removeFirst()
+        }
+        if text.hasSuffix("%") {
+            text.removeLast()
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return nil }
+
+        let lower = text.lowercased()
+        if lower.contains("nan") || lower.contains("inf") {
+            return nil
+        }
+
+        if let intVal = Int(text) {
+            guard intVal >= 0 && intVal <= 1000 else { return nil }
+            return intVal
+        }
+        if let doubleVal = Double(text), doubleVal.isFinite, !doubleVal.isNaN {
+            let rounded = Int(doubleVal.rounded())
+            guard rounded >= 0 && rounded <= 1000 else { return nil }
+            return rounded
+        }
+        return nil
     }
 
     private static func paneID(from field: some StringProtocol) -> TmuxPaneID? {

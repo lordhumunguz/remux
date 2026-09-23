@@ -11,9 +11,11 @@ final class TmuxPaneAgentStateTests: XCTestCase {
         _ unseen: String = "",
         _ branch: String = "",
         _ repo: String = "",
-        _ model: String = ""
+        _ model: String = "",
+        _ tool: String = "",
+        _ pct: String = ""
     ) -> String {
-        [paneID, blocked, working, unseen, branch, repo, model]
+        [paneID, blocked, working, unseen, branch, repo, model, tool, pct]
             .joined(separator: separator)
     }
 
@@ -61,6 +63,67 @@ final class TmuxPaneAgentStateTests: XCTestCase {
         XCTAssertNil(infos[2]?.agentModel)
     }
 
+    func testParsesAgentToolAndQuotaPercentFields() {
+        let body = [
+            line("%1", "1", "", "", "feature/byron", "remux", "claude-3-7-sonnet", "claude:work", "W36%"),
+            line("%2", "", "1", "", "", "", "", "muse", "75"),
+            line("%3", "", "", "", "", "", "", "grok", "92%"),
+            line("%4"),
+        ].joined(separator: "\n")
+
+        let infos = TmuxPaneAgentMetadata.parseListPanesBody(body)
+
+        XCTAssertEqual(infos[1]?.agentTool, "claude:work")
+        XCTAssertEqual(infos[1]?.quotaPercent, 36)
+        XCTAssertEqual(infos[2]?.agentTool, "muse")
+        XCTAssertEqual(infos[2]?.quotaPercent, 75)
+        XCTAssertEqual(infos[3]?.agentTool, "grok")
+        XCTAssertEqual(infos[3]?.quotaPercent, 92)
+        XCTAssertNil(infos[4]?.agentTool)
+        XCTAssertNil(infos[4]?.quotaPercent)
+    }
+
+    func testQuotaPercentParsingVariousFormats() {
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("36"), 36)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("36%"), 36)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("W36%"), 36)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("w75%"), 75)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("90"), 90)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("0%"), 0)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("100%"), 100)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("  W82%  "), 82)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("36.4%"), 36)
+        XCTAssertEqual(TmuxPaneAgentMetadata.parseQuotaPercent("36.6%"), 37)
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent(""))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("   "))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("none"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("W"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("w"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("%"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("W%"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("-5"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("W-10%"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("nan"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("NaN"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("inf"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("-inf"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("infinity"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("Wnan%"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseQuotaPercent("1001"))
+    }
+
+    func testGracefulDegradationWithLegacyFieldCounts() {
+        // Line with only 7 fields from legacy server
+        let legacy7Fields = ["%1", "1", "0", "0", "main", "remux", "claude-sonnet"].joined(separator: separator)
+        let infos = TmuxPaneAgentMetadata.parseListPanesBody(legacy7Fields)
+
+        XCTAssertEqual(infos[1]?.state, .blocked)
+        XCTAssertEqual(infos[1]?.gitBranch, "main")
+        XCTAssertEqual(infos[1]?.agentModel, "claude-sonnet")
+        XCTAssertNil(infos[1]?.agentTool)
+        XCTAssertNil(infos[1]?.quotaPercent)
+    }
+
     func testSkipsMalformedLines() {
         let body = [
             "not-a-pane",
@@ -86,6 +149,8 @@ final class TmuxPaneAgentStateTests: XCTestCase {
             "#{@pane_git_branch}",
             "#{@pane_git_repo}",
             "#{@pane_agent_model}",
+            "#{@pane_agent_tool}",
+            "#{@pane_agent_pct}",
         ] {
             XCTAssertTrue(command.contains(option), "missing \(option)")
         }

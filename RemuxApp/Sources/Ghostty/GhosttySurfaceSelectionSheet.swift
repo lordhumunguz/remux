@@ -763,20 +763,29 @@ private struct GhosttyPaneTopologyDiagram: View {
                     .truncationMode(.tail)
             }
 
-            HStack(spacing: 3) {
-                if let agent = AgentDetection.agent(forCommand: pane.tmuxCurrentCommand) {
-                    Text(agent.glyph)
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(agent.accent)
-                        .accessibilityHidden(true)
-                }
+            if let resolution = AgentDetection.resolve(
+                tool: pane.agentInfo.agentTool,
+                command: pane.tmuxCurrentCommand
+            ) {
+                TmuxAgentProfilePillView(
+                    resolution: resolution,
+                    quotaPercent: pane.agentInfo.quotaPercent,
+                    prefersCompactProfile: size.width < 140
+                )
+            } else {
+                HStack(spacing: 3) {
+                    Text(commandName(for: pane))
+                        .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
 
-                Text(commandName(for: pane))
-                    .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                    if let quota = pane.agentInfo.quotaPercent {
+                        TmuxAgentQuotaPill(percent: quota)
+                            .fixedSize()
+                    }
+                }
+                .font(.system(size: 11, weight: .medium))
             }
-            .font(.system(size: 11, weight: .medium))
-            .lineLimit(1)
-            .truncationMode(.tail)
 
             if let branch = gitBranchLabel(for: pane) {
                 Text(branch)
@@ -826,12 +835,19 @@ private struct GhosttyPaneTopologyDiagram: View {
         if let detail = context?.worktreeDetail {
             parts.append(detail)
         }
-        parts.append(commandName(for: pane))
-        if let agent = AgentDetection.agent(forCommand: pane.tmuxCurrentCommand) {
-            parts.append(agent.displayName)
+        if let resolution = AgentDetection.resolve(
+            tool: pane.agentInfo.agentTool,
+            command: pane.tmuxCurrentCommand
+        ) {
+            parts.append(resolution.byronProfileName)
+        } else {
+            parts.append(commandName(for: pane))
         }
         if let agentLabel = TmuxAgentStateBadge.accessibilityLabel(for: pane.agentInfo.state) {
             parts.append(agentLabel)
+        }
+        if let quota = pane.agentInfo.quotaPercent {
+            parts.append("weekly quota \(quota) percent")
         }
         if let branch = gitBranchLabel(for: pane) {
             parts.append("branch \(branch)")

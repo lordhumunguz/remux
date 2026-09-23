@@ -47,3 +47,68 @@ struct TmuxAgentStateBadge: View {
         }
     }
 }
+
+/// Quota percent pill (e.g. `W36%`), colored amber at >=75% and bold red at >=90%.
+struct TmuxAgentQuotaPill: View {
+    let percent: Int
+    var font: Font? = nil
+
+    var body: some View {
+        Text("W\(percent)%")
+            .font(font ?? .system(size: 10, weight: percent >= 90 ? .bold : .medium, design: .monospaced))
+            .foregroundStyle(foregroundColor)
+            .lineLimit(1)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(backgroundColor, in: Capsule())
+            .accessibilityLabel("weekly quota \(percent) percent")
+    }
+
+    var foregroundColor: Color {
+        if percent >= 90 {
+            return TmuxAgentStatePalette.blocked
+        } else if percent >= 75 {
+            return TmuxAgentStatePalette.working
+        } else {
+            return TerminalSelectionSheetPalette.secondary
+        }
+    }
+
+    var backgroundColor: Color {
+        if percent >= 90 {
+            return TmuxAgentStatePalette.blocked.opacity(0.18)
+        } else if percent >= 75 {
+            return TmuxAgentStatePalette.working.opacity(0.18)
+        } else {
+            return TerminalSelectionSheetPalette.row.opacity(0.6)
+        }
+    }
+}
+
+/// Renders the agent identity glyph, Byron profile name (or compact profile tag),
+/// and quota percent pill.
+struct TmuxAgentProfilePillView: View {
+    let resolution: AgentResolution
+    var quotaPercent: Int? = nil
+    var prefersCompactProfile: Bool = false
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Text(resolution.identity.glyph)
+                .font(.system(size: 10, weight: .semibold))
+                .foregroundStyle(resolution.identity.accent)
+                .accessibilityHidden(true)
+
+            Text(prefersCompactProfile ? resolution.compactLabel : resolution.byronProfileName)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            if let quotaPercent {
+                TmuxAgentQuotaPill(percent: quotaPercent)
+                    .fixedSize()
+            }
+        }
+    }
+}

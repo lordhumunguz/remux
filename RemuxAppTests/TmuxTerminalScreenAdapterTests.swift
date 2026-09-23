@@ -536,6 +536,44 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testSessionAgentResolvesFromByronAgentToolWhenCommandIsGeneric() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "work",
+            windows: [window(id: 1, active: true, paneID: 10, zoomed: false)],
+            panes: [pane(id: 10, windowID: 1, currentCommand: "node")],
+            activeWindowID: 1
+        ))
+
+        XCTAssertNil(adapter.sessionAgent, "node command alone does not detect an agent")
+
+        session.handlePaneAgentMetadataForTesting([
+            10: TmuxPaneAgentInfo(
+                state: .working,
+                agentTool: "claude:work",
+                quotaPercent: 36
+            ),
+        ])
+
+        XCTAssertEqual(adapter.sessionAgent, .claudeCode, "agentTool claude:work resolves agent to .claudeCode")
+
+        let windowID = try XCTUnwrap(
+            adapter.windowSelectionSheetRenderProjection().selectedWindowID
+        )
+        let picker = adapter.paneSelectionSheetRenderProjection(topLevelID: windowID)
+        XCTAssertEqual(picker.panes[0].agentInfo.agentTool, "claude:work")
+        XCTAssertEqual(picker.panes[0].agentInfo.quotaPercent, 36)
+
+        await session.shutdown()
+    }
+
     func testUnchangedPaneAgentMetadataDoesNotRepublish() async throws {
         let runtime = try GhosttyKitRuntime()
         let session = makeSession(runtime: runtime)
