@@ -102,11 +102,108 @@ enum AgentIdentity: String, CaseIterable, Equatable, Sendable {
     }
 }
 
-/// Maps a pane's current command to the coding agent running in it, if any.
-/// Substring matching on the lowercased command keeps version-suffixed
-/// wrappers (e.g. `claude-2.1`, `kimi2`) detectable, mirroring cockpit's
-/// pane-sync detection.
+/// An agent identity resolved either from the Byron pane tool metadata
+/// (`@pane_agent_tool`, e.g. `claude:work`, `muse`, `grok`) or from the
+/// pane's current foreground command.
+struct AgentResolution: Equatable, Sendable {
+    let identity: AgentIdentity
+    /// Sub-profile tag if specified in `agentTool` (e.g. "work" from "claude:work").
+    let profile: String?
+    /// Raw `agentTool` string from Byron if available (e.g. "claude:work", "muse").
+    let rawTool: String?
+
+    /// Formatted Byron profile name: the raw tool string if present, or
+    /// formatted as `<name>:<profile>` / `<displayName>`.
+    var byronProfileName: String {
+        if let rawTool, !rawTool.isEmpty {
+            return rawTool
+        }
+        if let profile, !profile.isEmpty {
+            let baseName = identity.displayName.split(separator: " ").first?.lowercased() ?? identity.rawValue
+            return "\(baseName):\(profile)"
+        }
+        return identity.displayName
+    }
+
+    /// Compact label: the profile tag if present (e.g. "work"), otherwise the tool name or display name.
+    var compactLabel: String {
+        profile ?? rawTool ?? identity.displayName
+    }
+
+    /// Label formatted with glyph, e.g. "✦ work" or "✦ claude:work".
+    var glyphWithProfile: String {
+        "\(identity.glyph) \(compactLabel)"
+    }
+}
+
+/// Maps a pane's current command or Byron agent tool string to the coding agent
+/// running in it, if any.
 enum AgentDetection {
+    /// Maps a tool string from Byron (`@pane_agent_tool`) to the corresponding
+    /// AgentIdentity. Handles both plain tool names ("claude", "muse", "grok")
+    /// and profiled names ("claude:work", "claude:personal").
+    static func agent(forTool tool: String) -> AgentIdentity? {
+        let base = tool.split(separator: ":", maxSplits: 1).first.map(String.init) ?? tool
+        let token = base.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        switch token {
+        case "claude", "claude_code", "claude-code", "anthropic":
+            return .claudeCode
+        case "codex", "chatgpt", "openai":
+            return .codex
+        case "opencode", "open-code":
+            return .opencode
+        case "kimi", "kimi_code", "kimi-code", "moonshot":
+            return .kimiCode
+        case "grok", "grok_build", "grok-build", "xai":
+            return .grok
+        case "goose":
+            return .goose
+        case "cursor", "cursor-agent":
+            return .cursor
+        case "antigravity", "agy", "gemini", "google":
+            return .antigravity
+        case "muse", "muse_code", "muse-code":
+            return .museCode
+        default:
+            return agent(forCommand: token)
+        }
+    }
+
+    /// Extracts the profile tag (e.g. "work" from "claude:work").
+    static func profile(forTool tool: String) -> String? {
+        let parts = tool.split(separator: ":", maxSplits: 1)
+        guard parts.count == 2 else { return nil }
+        let trimmed = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : String(trimmed)
+    }
+
+    /// Resolves agent identity and profile from Byron's `agentTool`, falling
+    /// back to command substring detection if `agentTool` is absent or unresolvable.
+    static func resolve(tool: String?, command: String) -> AgentResolution? {
+        if let tool, !tool.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let cleanTool = tool.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let identity = agent(forTool: cleanTool) {
+                return AgentResolution(
+                    identity: identity,
+                    profile: profile(forTool: cleanTool),
+                    rawTool: cleanTool
+                )
+            }
+        }
+        if let identity = agent(forCommand: command) {
+            return AgentResolution(
+                identity: identity,
+                profile: nil,
+                rawTool: nil
+            )
+        }
+        return nil
+    }
+
+    /// Maps a pane's current command to the coding agent running in it, if any.
+    /// Substring matching on the lowercased command keeps version-suffixed
+    /// wrappers (e.g. `claude-2.1`, `kimi2`) detectable, mirroring cockpit's
+    /// pane-sync detection.
     static func agent(forCommand command: String) -> AgentIdentity? {
         let cmd = command.lowercased()
         if cmd.contains("claude") { return .claudeCode }

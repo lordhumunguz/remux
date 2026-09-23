@@ -200,6 +200,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             .sink { [weak self] infos in
                 guard let self else { return }
                 self.latestPaneAgentInfo = infos
+                self.reconcileAgentTracking(with: self.latestTopology)
                 self.objectWillChange.send()
             }
             .store(in: &subscriptions)
@@ -379,7 +380,10 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             paneIDs.contains($0.key)
         }
         for pane in topology.panes {
-            if let agent = AgentDetection.agent(forCommand: pane.currentCommand) {
+            if let agent = AgentDetection.resolve(
+                tool: latestPaneAgentInfo[pane.id]?.agentTool,
+                command: pane.currentCommand
+            )?.identity {
                 lastDetectedAgentByPaneID[pane.id] = agent
             }
         }
@@ -390,7 +394,10 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
     private func resumableAgent(
         for pane: TmuxSessionController.PaneInfo
     ) -> AgentIdentity? {
-        guard AgentDetection.agent(forCommand: pane.currentCommand) == nil else {
+        guard AgentDetection.resolve(
+            tool: latestPaneAgentInfo[pane.id]?.agentTool,
+            command: pane.currentCommand
+        ) == nil else {
             return nil
         }
         return lastDetectedAgentByPaneID[pane.id]
@@ -400,7 +407,12 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
     /// the session switcher badge.
     var sessionAgent: AgentIdentity? {
         latestTopology?.panes.lazy
-            .compactMap { AgentDetection.agent(forCommand: $0.currentCommand) }
+            .compactMap { pane in
+                AgentDetection.resolve(
+                    tool: self.latestPaneAgentInfo[pane.id]?.agentTool,
+                    command: pane.currentCommand
+                )?.identity
+            }
             .first
     }
 
@@ -411,7 +423,10 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         return topology.windows.compactMap { window in
             let hasAgent = topology.panes.contains {
                 $0.windowID == window.id
-                    && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+                    && AgentDetection.resolve(
+                        tool: self.latestPaneAgentInfo[$0.id]?.agentTool,
+                        command: $0.currentCommand
+                    ) != nil
             }
             return hasAgent ? identities.surfaceID(for: window.id) : nil
         }
@@ -425,7 +440,10 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             window.id != topology.activeWindowID
                 && topology.panes.contains {
                     $0.windowID == window.id
-                        && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+                        && AgentDetection.resolve(
+                            tool: self.latestPaneAgentInfo[$0.id]?.agentTool,
+                            command: $0.currentCommand
+                        ) != nil
                 }
         }
     }
@@ -888,7 +906,10 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         let hasAgentByWindow = topology.windows.map { window in
             topology.panes.contains {
                 $0.windowID == window.id
-                    && AgentDetection.agent(forCommand: $0.currentCommand) != nil
+                    && AgentDetection.resolve(
+                        tool: self.latestPaneAgentInfo[$0.id]?.agentTool,
+                        command: $0.currentCommand
+                    ) != nil
             }
         }
         let activeIndex = topology.activeWindowID
