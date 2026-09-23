@@ -1137,6 +1137,53 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testBlockedAgentAttentionAndJumpToBlockedAgent() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "dev",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "editor", zoomed: false),
+                window(id: 2, active: false, paneID: 11, name: "agent", zoomed: false),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "zsh"),
+                pane(id: 11, windowID: 2, currentCommand: "claude"),
+            ],
+            activeWindowID: 1
+        ))
+
+        XCTAssertNil(adapter.blockedAgentAttention, "no pane is blocked yet")
+
+        session.handlePaneAgentMetadataForTesting([
+            10: TmuxPaneAgentInfo(state: .idle),
+            11: TmuxPaneAgentInfo(state: .blocked, agentTool: "claude:work"),
+        ])
+
+        let attention = try XCTUnwrap(adapter.blockedAgentAttention)
+        XCTAssertEqual(attention.paneID, 11)
+        XCTAssertEqual(attention.windowID, 2)
+        XCTAssertEqual(attention.agent, .claudeCode)
+        XCTAssertEqual(attention.title, "✦ Claude Code needs input")
+        XCTAssertEqual(attention.location, "in agent")
+
+        let outcome = adapter.jumpToBlockedAgent()
+        XCTAssertEqual(outcome, .queued)
+
+        let directOutcome = adapter.jumpToPane(paneID: 11)
+        XCTAssertEqual(directOutcome, .queued)
+
+        adapter.invalidate()
+        await session.shutdown()
+    }
+
     private func drain(_ controller: TmuxSessionController) async {
         await withCheckedContinuation { continuation in
             controller.queue.async {

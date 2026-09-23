@@ -420,6 +420,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
             .overlay(alignment: .bottom) {
                 attachmentNoticeLayer()
             }
+            .overlay(alignment: .bottom) {
+                agentAttentionAndResumeLayer(bottomChromeHeight: bottomChromeHeight)
+            }
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 Color.clear
                     .frame(height: bottomChromeHeight)
@@ -1293,6 +1296,84 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 .padding(.bottom, 8)
                 .transition(.move(edge: .bottom).combined(with: .opacity))
                 .zIndex(3)
+        }
+    }
+
+    @ViewBuilder
+    private func agentAttentionAndResumeLayer(bottomChromeHeight: CGFloat) -> some View {
+        if isSelected && isTerminalInputAvailable {
+            VStack(spacing: 6) {
+                if let attention = model.blockedAgentAttention {
+                    Button {
+                        Haptic.selection()
+                        _ = model.jumpToBlockedAgent()
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: "exclamationmark.circle.fill")
+                                .foregroundStyle(Color.orange)
+                                .font(.system(size: 15))
+                            Text(attention.title)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundStyle(Color.primary)
+                            Text(attention.location)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.secondary)
+                            Spacer()
+                            Text("Jump")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(Color.white)
+                                .padding(.horizontal, 10)
+                                .padding(.vertical, 4)
+                                .background(Capsule().fill(Color.orange))
+                        }
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background {
+                            Capsule()
+                                .fill(GhosttyPhoneChromePalette.dock.opacity(0.96))
+                                .overlay {
+                                    Capsule().strokeBorder(Color.orange.opacity(0.6), lineWidth: 1)
+                                }
+                                .shadow(color: .black.opacity(0.3), radius: 6, y: 3)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("terminal.agent-blocked-jump")
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                } else if !isActiveComposerPresented, let agent = focusedResumableAgent, agent.resumeCommand != nil {
+                    Button {
+                        resumeFocusedAgentFromComposer()
+                    } label: {
+                        HStack(spacing: 6) {
+                            Text(agent.glyph)
+                                .font(.system(size: 13, weight: .bold))
+                            Text("Resume \(agent.displayName)")
+                                .font(.system(size: 13, weight: .semibold))
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(agent.accent)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 7)
+                        .background {
+                            Capsule()
+                                .fill(GhosttyPhoneChromePalette.dock.opacity(0.96))
+                                .overlay {
+                                    Capsule().strokeBorder(agent.accent.opacity(0.5), lineWidth: 1)
+                                }
+                                .shadow(color: .black.opacity(0.25), radius: 5, y: 2)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("terminal.quick-resume-chip")
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, bottomChromeHeight + 8)
+            .zIndex(2)
+            .animation(.easeInOut(duration: 0.2), value: model.blockedAgentAttention != nil)
+            .animation(.easeInOut(duration: 0.2), value: focusedResumableAgent != nil)
         }
     }
 

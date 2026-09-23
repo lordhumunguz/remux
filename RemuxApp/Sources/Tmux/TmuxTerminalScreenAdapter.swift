@@ -448,6 +448,30 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         }
     }
 
+    /// Blocked agent anywhere in the session requiring user attention.
+    var blockedAgentAttention: TmuxBlockedAgentAttention? {
+        guard let topology = latestTopology else { return nil }
+        for pane in topology.panes {
+            guard latestPaneAgentInfo[pane.id]?.isBlocked == true else { continue }
+            if activeManagedPaneID == pane.id {
+                continue
+            }
+            let agent = AgentDetection.resolve(
+                tool: latestPaneAgentInfo[pane.id]?.agentTool,
+                command: pane.currentCommand
+            )?.identity ?? lastDetectedAgentByPaneID[pane.id]
+            let windowName = topology.windows.first(where: { $0.id == pane.windowID })?.name
+            return TmuxBlockedAgentAttention(
+                paneID: pane.id,
+                windowID: pane.windowID,
+                windowName: windowName,
+                currentCommand: pane.currentCommand,
+                agent: agent
+            )
+        }
+        return nil
+    }
+
     private var runtimePhase: GhosttyTerminalRuntimePhase {
         guard let session else {
             return .failed(message: "terminal session unavailable", reason: nil)
@@ -927,6 +951,29 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         let targetWindow = topology.windows[targetIndex]
         requestWindowSelection(targetWindow, in: topology, controller: controller)
         return .queued
+    }
+
+    func jumpToPane(paneID: TmuxPaneID) -> GhosttyTmuxModelActionOutcome {
+        guard let controller, let topology = latestTopology else {
+            return .missingTarget(.pane(UUID()))
+        }
+        guard let pane = topology.panes.first(where: { $0.id == paneID }) else {
+            return .missingTarget(.pane(UUID()))
+        }
+        if topology.activeWindowID != pane.windowID,
+           let targetWindow = topology.windows.first(where: { $0.id == pane.windowID }) {
+            requestWindowSelection(targetWindow, in: topology, controller: controller)
+        }
+        let surfaceID = identities.surfaceID(for: paneID)
+        _ = focusTmuxPane(surfaceID)
+        return .queued
+    }
+
+    func jumpToBlockedAgent() -> GhosttyTmuxModelActionOutcome {
+        guard let attention = blockedAgentAttention else {
+            return .missingTarget(.pane(UUID()))
+        }
+        return jumpToPane(paneID: attention.paneID)
     }
 
     private func requestWindowSelection(

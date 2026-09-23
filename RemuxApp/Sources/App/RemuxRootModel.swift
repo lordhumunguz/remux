@@ -375,7 +375,7 @@ final class RemuxRootModel: ObservableObject {
         }
     }
 
-    func load() async {
+    func load(autoConnectLatest: Bool = false) async {
         guard setupAllowsLibraryReload else { return }
         do {
 #if DEBUG || REMUX_LIVE_UI_TESTING
@@ -391,6 +391,9 @@ final class RemuxRootModel: ObservableObject {
             state = .library
             scheduleLibrarySSHPrewarm(snapshot: library)
             scheduleLaunchTmuxSessionDiscovery()
+            if autoConnectLatest, terminalSettings.autoReconnectOnLaunch, let latest = library.latestProfile {
+                await connect(to: latest.1.id)
+            }
         } catch {
             guard setupAllowsLibraryReload else { return }
             transitionToFailed(error)
@@ -1229,6 +1232,25 @@ final class RemuxRootModel: ObservableObject {
         await connect(server: server, workspace: workspace)
     }
 
+    func jumpToAgent(sessionName: String, paneID: TmuxPaneID) async {
+        // 1. Check if the active/connected session matches sessionName
+        if let session = activeSessions.first(where: { $0.target.workspace.sessionName == sessionName }) {
+            let model = terminalScreenModel(for: session)
+            _ = model.terminalScreenAdapter.jumpToPane(paneID: paneID)
+            state = .terminal(session.id)
+            return
+        }
+
+        // 2. If not active, find in library and connect, then jump once connected
+        if let workspace = library.workspaces.first(where: { $0.sessionName == sessionName }) {
+            await connect(to: workspace.id)
+            if let session = activeSessions.first(where: { $0.target.workspace.sessionName == sessionName }) {
+                let model = terminalScreenModel(for: session)
+                _ = model.terminalScreenAdapter.jumpToPane(paneID: paneID)
+            }
+        }
+    }
+
     private func connect(
         server: SavedServer,
         workspace: SavedWorkspace
@@ -1284,6 +1306,9 @@ final class RemuxRootModel: ObservableObject {
         workspace: SavedWorkspace,
         sshAuth: ResolvedSSHAuth
     ) async -> Bool {
+        if terminalSettings.autoConfirmSeatTakeover {
+            return false
+        }
         // A connect started while another probe runs waits for it and then
         // probes its own target; skipping the wait would attach it with no
         // occupancy check at all.

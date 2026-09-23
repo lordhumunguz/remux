@@ -4248,6 +4248,92 @@ final class RemuxRootModelTests: XCTestCase {
         XCTAssertEqual(harness.model.state, .library)
         XCTAssertEqual(harness.model.library.servers, [pair.server])
     }
+
+    func testAutoReconnectOnLaunchConnectsToLatestProfile() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(
+            serverID: pair.server.id,
+            sessionName: "main",
+            lastOpenedAt: Date()
+        )
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            settings: TerminalSettings(
+                fontSize: nil,
+                theme: .ghosttyDefault,
+                autoReconnectOnLaunch: true
+            )
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load(autoConnectLatest: true)
+        if case .terminal(let id) = harness.model.state {
+            XCTAssertEqual(id, workspace.id)
+        } else {
+            XCTFail("expected state to be .terminal, got \(harness.model.state)")
+        }
+    }
+
+    func testAutoReconnectOnLaunchDisabledStaysInLibrary() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(
+            serverID: pair.server.id,
+            sessionName: "main",
+            lastOpenedAt: Date()
+        )
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            settings: TerminalSettings(
+                fontSize: nil,
+                theme: .ghosttyDefault,
+                autoReconnectOnLaunch: false
+            )
+        )
+        await harness.model.load(autoConnectLatest: true)
+        XCTAssertEqual(harness.model.state, .library)
+    }
+
+    func testAutoConfirmSeatTakeoverBypassesWarning() async throws {
+        let pair = makePasswordBackedServer()
+        let workspace = SavedWorkspace(
+            serverID: pair.server.id,
+            sessionName: "main"
+        )
+        final class ProbeTracker: @unchecked Sendable {
+            private let lock = NSLock()
+            private var called = false
+            func setCalled() { lock.lock(); defer { lock.unlock() }; called = true }
+            var isCalled: Bool { lock.lock(); defer { lock.unlock() }; return called }
+        }
+        let tracker = ProbeTracker()
+        let harness = makeHarness(
+            servers: [pair.server],
+            workspaces: [workspace],
+            identities: [pair.identity],
+            settings: TerminalSettings(
+                fontSize: nil,
+                theme: .ghosttyDefault,
+                autoConfirmSeatTakeover: true
+            ),
+            tmuxSeatProber: { _, _, _ in
+                tracker.setCalled()
+                return true // occupied
+            }
+        )
+        try await harness.credentialHelper.savePassword("secret", for: pair.server.id)
+        await harness.model.load(autoConnectLatest: false)
+        await harness.model.connect(to: workspace.id)
+        XCTAssertNil(harness.model.pendingSeatTakeover, "auto-confirm seat takeover must skip warning dialog")
+        XCTAssertFalse(tracker.isCalled, "auto-confirm skips seat probe entirely")
+        if case .terminal(let id) = harness.model.state {
+            XCTAssertEqual(id, workspace.id)
+        } else {
+            XCTFail("expected state to be .terminal, got \(harness.model.state)")
+        }
+    }
 }
 
 private struct RemuxRootModelHarness {

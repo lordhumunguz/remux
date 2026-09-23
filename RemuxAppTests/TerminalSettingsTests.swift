@@ -260,4 +260,28 @@ final class TerminalSettingsTests: XCTestCase {
 
         XCTAssertEqual(fontSize, 14)
     }
+
+    func testWorkflowSettingsDefaultToTrueAndDecodeFallback() throws {
+        let settings = TerminalSettings.default
+        XCTAssertTrue(settings.autoReconnectOnLaunch)
+        XCTAssertFalse(settings.autoConfirmSeatTakeover)
+
+        let olderData = Data(#"{"fontSize":16,"theme":"ghosttyDefault"}"#.utf8)
+        let decoded = try JSONDecoder().decode(TerminalSettings.self, from: olderData)
+        XCTAssertTrue(decoded.autoReconnectOnLaunch)
+        XCTAssertFalse(decoded.autoConfirmSeatTakeover)
+
+        let customSettings = TerminalSettings(
+            fontSize: nil,
+            theme: .tokyoNight,
+            autoReconnectOnLaunch: false,
+            autoConfirmSeatTakeover: true
+        )
+        let roundtripped = try JSONDecoder().decode(
+            TerminalSettings.self,
+            from: JSONEncoder().encode(customSettings)
+        )
+        XCTAssertFalse(roundtripped.autoReconnectOnLaunch)
+        XCTAssertTrue(roundtripped.autoConfirmSeatTakeover)
+    }
 }

@@ -432,12 +432,42 @@ struct GhosttyComposeBar: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 32)
         } else if composer.draft.isEmpty {
-            Text(composerPlaceholder)
-                .foregroundStyle(GhosttyPhoneChromePalette.chromeSecondaryForeground)
-                .padding(.leading, 4)
-                .padding(.top, 8)
-                .allowsHitTesting(false)
-                .accessibilityIdentifier("terminal.composer.placeholder")
+            HStack(spacing: 8) {
+                Text(composerPlaceholder)
+                    .foregroundStyle(GhosttyPhoneChromePalette.chromeSecondaryForeground)
+                    .padding(.leading, 4)
+                    .allowsHitTesting(false)
+                    .accessibilityIdentifier("terminal.composer.placeholder")
+
+                if let agent = resumableAgent, agent.resumeCommand != nil {
+                    Spacer()
+                    Button {
+                        onResumeAgent()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Text(agent.glyph)
+                                .font(.system(size: 11, weight: .bold))
+                            Text("Resume \(agent.displayName)")
+                                .font(.system(size: 11, weight: .medium))
+                            Image(systemName: "arrow.clockwise")
+                                .font(.system(size: 9, weight: .semibold))
+                        }
+                        .foregroundStyle(agent.accent)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background {
+                            Capsule()
+                                .fill(agent.accent.opacity(0.12))
+                                .overlay {
+                                    Capsule().strokeBorder(agent.accent.opacity(0.4), lineWidth: 1)
+                                }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("terminal.composer.quick-resume")
+                }
+            }
+            .padding(.top, 6)
         }
     }
 

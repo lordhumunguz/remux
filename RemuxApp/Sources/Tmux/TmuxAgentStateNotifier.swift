@@ -1,5 +1,5 @@
 import Foundation
-import UserNotifications
+@preconcurrency import UserNotifications
 
 /// Boundary for the "agent blocked" alert so the tmux session stack stays
 /// testable without a notification center.
@@ -33,6 +33,10 @@ struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
             content.body = Self.body(for: notification)
             content.sound = .default
             content.threadIdentifier = notification.sessionName
+            content.userInfo = [
+                "sessionName": notification.sessionName,
+                "paneID": NSNumber(value: notification.paneID.rawValue),
+            ]
             let request = UNNotificationRequest(
                 identifier: Self.identifier(
                     sessionName: notification.sessionName,
@@ -41,7 +45,7 @@ struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
                 content: content,
                 trigger: nil
             )
-            center.add(request)
+            UNUserNotificationCenter.current().add(request)
         }
     }
 
@@ -69,10 +73,41 @@ struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
 final class RemuxUserNotificationDelegate: NSObject, UNUserNotificationCenterDelegate, Sendable {
     static let shared = RemuxUserNotificationDelegate()
 
+    typealias NotificationActionHandler = @MainActor @Sendable (_ sessionName: String, _ paneID: TmuxPaneID) -> Void
+    private static let handlerLock = NSLock()
+    private static nonisolated(unsafe) var registeredHandler: NotificationActionHandler?
+
+    static func setNotificationActionHandler(_ handler: NotificationActionHandler?) {
+        handlerLock.lock()
+        defer { handlerLock.unlock() }
+        registeredHandler = handler
+    }
+
     func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification
     ) async -> UNNotificationPresentationOptions {
         [.banner, .list, .sound]
+    }
+
+    func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        let userInfo = response.notification.request.content.userInfo
+        guard let sessionName = userInfo["sessionName"] as? String else {
+            return
+        }
+        let paneRaw: UInt64? = (userInfo["paneID"] as? NSNumber)?.uint64Value
+            ?? (userInfo["paneID"] as? UInt64)
+            ?? (userInfo["paneID"] as? Int).flatMap { $0 >= 0 ? UInt64($0) : nil }
+        guard let paneRaw else { return }
+        let paneID = TmuxPaneID(paneRaw)
+        await MainActor.run {
+            Self.handlerLock.lock()
+            let handler = Self.registeredHandler
+            Self.handlerLock.unlock()
+            handler?(sessionName, paneID)
+        }
     }
 }

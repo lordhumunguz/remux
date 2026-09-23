@@ -297,4 +297,36 @@ final class TmuxPaneAgentStateTests: XCTestCase {
             "an unpresented session alerts even for its active pane"
         )
     }
+
+    func testBlockedAgentAttentionFormatting() {
+        let attention = TmuxBlockedAgentAttention(
+            paneID: 5,
+            windowID: 2,
+            windowName: "agent-window",
+            currentCommand: "claude",
+            agent: .claudeCode
+        )
+        XCTAssertEqual(attention.title, "✦ Claude Code needs input")
+        XCTAssertEqual(attention.location, "in agent-window")
+
+        let unnamed = TmuxBlockedAgentAttention(
+            paneID: 8,
+            windowID: 1,
+            windowName: nil,
+            currentCommand: "zsh",
+            agent: nil
+        )
+        XCTAssertEqual(unnamed.title, "Agent needs input")
+        XCTAssertEqual(unnamed.location, "in pane 8")
+    }
+
+    @MainActor
+    func testUserNotificationActionHandlerRegistration() {
+        var received: (session: String, paneID: TmuxPaneID)?
+        RemuxUserNotificationDelegate.setNotificationActionHandler { session, paneID in
+            received = (session, paneID)
+        }
+        RemuxUserNotificationDelegate.setNotificationActionHandler(nil)
+        XCTAssertNil(received)
+    }
 }

@@ -308,13 +308,23 @@ struct TerminalSettings: Equatable, Codable, Sendable {
     /// toolbar. The first key owns the long-press shortcut-palette gesture.
     var toolbarKeys: TerminalToolbarKeys
 
+    /// Automatically reconnects to the last-opened workspace on app cold launch.
+    /// Defaults to `true`.
+    var autoReconnectOnLaunch: Bool
+
+    /// Automatically assumes the tmux client seat without a confirmation modal.
+    /// Defaults to `true`.
+    var autoConfirmSeatTakeover: Bool
+
     init(
         fontSize: Float32?,
         theme: TerminalTheme,
         allowInsecureRSAHostKeys: Bool = false,
         zoomMultipaneWindowsByDefault: Bool = false,
         optionAsAlt: Bool = true,
-        toolbarKeys: TerminalToolbarKeys = .default
+        toolbarKeys: TerminalToolbarKeys = .default,
+        autoReconnectOnLaunch: Bool = true,
+        autoConfirmSeatTakeover: Bool = false
     ) {
         self.fontSize = Self.normalizedFontSize(fontSize)
         self.theme = theme
@@ -322,6 +332,8 @@ struct TerminalSettings: Equatable, Codable, Sendable {
         self.zoomMultipaneWindowsByDefault = zoomMultipaneWindowsByDefault
         self.optionAsAlt = optionAsAlt
         self.toolbarKeys = toolbarKeys
+        self.autoReconnectOnLaunch = autoReconnectOnLaunch
+        self.autoConfirmSeatTakeover = autoConfirmSeatTakeover
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -331,6 +343,8 @@ struct TerminalSettings: Equatable, Codable, Sendable {
         case zoomMultipaneWindowsByDefault
         case optionAsAlt
         case toolbarKeys
+        case autoReconnectOnLaunch
+        case autoConfirmSeatTakeover
     }
 
     // Custom decoding keeps older persisted settings (written before these keys
@@ -353,7 +367,9 @@ struct TerminalSettings: Equatable, Codable, Sendable {
             toolbarKeys: try container.decodeIfPresent(
                 TerminalToolbarKeys.self,
                 forKey: .toolbarKeys
-            ) ?? .default
+            ) ?? .default,
+            autoReconnectOnLaunch: try container.decodeIfPresent(Bool.self, forKey: .autoReconnectOnLaunch) ?? true,
+            autoConfirmSeatTakeover: try container.decodeIfPresent(Bool.self, forKey: .autoConfirmSeatTakeover) ?? false
         )
     }
 
