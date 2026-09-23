@@ -48,7 +48,7 @@ private struct RemuxRootContentView: View {
             case .loading:
                 ProgressView("Loading Remux")
                     .task {
-                        async let modelLoad: Void = model.load()
+                        async let modelLoad: Void = model.load(autoConnectLatest: true)
                         async let shortcutLoad: Void = shortcutStore.load()
                         _ = await (modelLoad, shortcutLoad)
                     }
@@ -63,6 +63,13 @@ private struct RemuxRootContentView: View {
 
             case .failed(let message):
                 FailureView(message: message)
+            }
+        }
+        .onAppear {
+            RemuxUserNotificationDelegate.setNotificationActionHandler { sessionName, paneID in
+                Task { @MainActor in
+                    await model.jumpToAgent(sessionName: sessionName, paneID: paneID)
+                }
             }
         }
         .task {
@@ -2233,6 +2240,24 @@ private struct TerminalSettingsView: View {
                 )
             }
             .libraryHomeListRowSurface()
+
+            Section {
+                Toggle("Auto-reconnect on launch", isOn: autoReconnectOnLaunchBinding)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityIdentifier("settings.auto-reconnect-on-launch")
+
+                Toggle("Auto-takeover tmux seat", isOn: autoConfirmSeatTakeoverBinding)
+                    .tint(LibraryHomePalette.controlAccent)
+                    .accessibilityIdentifier("settings.auto-confirm-seat-takeover")
+            } header: {
+                Text("Workflow")
+            } footer: {
+                Text(
+                    "Automatically connects to the most recently opened workspace on cold launch, "
+                        + "and connects to existing tmux sessions without asking for seat takeover confirmation."
+                )
+            }
+            .libraryHomeListRowSurface()
         }
         .libraryHomeGroupedScrollBackground()
         .libraryHomeChrome(theme: settings.theme)
@@ -2246,6 +2271,26 @@ private struct TerminalSettingsView: View {
             guard settings == previousSettings else { return }
             settings = updatedSettings
         }
+    }
+
+    private var autoReconnectOnLaunchBinding: Binding<Bool> {
+        Binding(
+            get: { settings.autoReconnectOnLaunch },
+            set: { value in
+                settings.autoReconnectOnLaunch = value
+                sourceSettings = settings
+            }
+        )
+    }
+
+    private var autoConfirmSeatTakeoverBinding: Binding<Bool> {
+        Binding(
+            get: { settings.autoConfirmSeatTakeover },
+            set: { value in
+                settings.autoConfirmSeatTakeover = value
+                sourceSettings = settings
+            }
+        )
     }
 
     private var useDefaultFontBinding: Binding<Bool> {

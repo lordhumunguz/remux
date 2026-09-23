@@ -46,6 +46,10 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
     var agentTool: String?
     var quotaPercent: Int?
 
+    var isBlocked: Bool {
+        state == .blocked
+    }
+
     static let idle = TmuxPaneAgentInfo(state: .idle)
 
     init(
@@ -248,3 +252,27 @@ struct TmuxAgentBlockedAlertPolicy: Equatable, Sendable {
         return paneID != viewedPaneID
     }
 }
+
+/// Attention model for a blocked agent needing user input.
+struct TmuxBlockedAgentAttention: Equatable, Sendable {
+    let paneID: TmuxPaneID
+    let windowID: TmuxWindowID
+    let windowName: String?
+    let currentCommand: String
+    let agent: AgentIdentity?
+
+    var title: String {
+        if let agent {
+            return "\(agent.glyph) \(agent.displayName) needs input"
+        }
+        return "Agent needs input"
+    }
+
+    var location: String {
+        if let windowName, !windowName.isEmpty {
+            return "in \(windowName)"
+        }
+        return "in pane \(paneID.rawValue)"
+    }
+}
+

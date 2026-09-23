@@ -151,10 +151,21 @@ protocol GhosttyTmuxActionModeling: ObservableObject {
     /// other than the currently active one exists.
     var canJumpToTmuxAgentTopLevel: Bool { get }
 
+    /// Blocked agent anywhere in the session requiring user attention.
+    var blockedAgentAttention: TmuxBlockedAgentAttention? { get }
+
     /// Best-effort "jump to agent window": cycles focus to the next window
     /// whose panes run a detected agent.
     @discardableResult
     func focusNextTmuxAgentTopLevel() -> GhosttyTmuxModelActionOutcome
+
+    /// Jump focus directly to a blocked agent pane across windows.
+    @discardableResult
+    func jumpToBlockedAgent() -> GhosttyTmuxModelActionOutcome
+
+    /// Focuses the given pane ID, switching windows if necessary.
+    @discardableResult
+    func jumpToPane(paneID: TmuxPaneID) -> GhosttyTmuxModelActionOutcome
 
     @discardableResult
     func createTmuxWindow() -> GhosttyTmuxModelActionOutcome
