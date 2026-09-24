@@ -2774,7 +2774,7 @@ struct GhosttyPhoneChromeLayout: Equatable {
     let screenSize: CGSize
 
     var isPad: Bool {
-        screenSize.width >= 600
+        min(screenSize.width, screenSize.height) >= 600
     }
 
     var isLandscape: Bool {
