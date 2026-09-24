@@ -40,17 +40,19 @@ are where sync conflicts land.
 
 | Feature | Owned files |
 | --- | --- |
-| Agent-state protocol (pane marks, badges, urgency ordering, blocked alerts) | `Tmux/TmuxPaneAgentState.swift`, `Tmux/TmuxAgentStateNotifier.swift`, `Ghostty/TmuxAgentStateBadge.swift` |
+| Agent-state protocol (pane marks, badges, urgency ordering, blocked alerts, `@ai_done_at` completion recency) | `Tmux/TmuxPaneAgentState.swift`, `Tmux/TmuxAgentStateNotifier.swift`, `Ghostty/TmuxAgentStateBadge.swift` |
 | Single-seat contract (seat handoff, accordion coordination, clean detach) | `Tmux/TmuxSeatContract.swift`, `Tmux/TmuxResponsiveAccordion.swift`, `SSH/TmuxSeatOccupancyProbe.swift` |
 | Project/worktree grouping | `Domain/RemuxProjectGrouping.swift` |
-| Agent identity and quick actions (glyphs, snippets, resume commands) | `Domain/AgentIdentity.swift`, `Domain/AgentPromptSnippets.swift` |
+| Agent identity, snippets, and Byron profiles (work/personal/muse/grok, quota badges, multi-action launcher) | `Domain/AgentIdentity.swift`, `Domain/AgentPromptSnippets.swift`, `Domain/ByronProfile.swift` |
+| Native iPad hardware shortcuts & dock layout controls (split right/down, zoom, command palette `⌘P`) | `Domain/GhosttyHardwareShortcut.swift`, `Domain/TmuxCommandPaletteAction.swift`, `Ghostty/TmuxCommandPaletteSheet.swift` |
 | Fleet import (ssh config, Tailscale peers) | `Domain/SSHConfigFileParser.swift`, `Domain/TailscaleStatusParser.swift`, `Domain/ServerImportPlanner.swift`, `App/ServerImportLoader.swift`, `App/ServerImportSheet.swift` |
 | Tokyo Night theme, Option-as-Alt, narrow-pane preview skip | inline in `Domain/TerminalSettings.swift`, `Ghostty/GhosttyTerminalResponderView.swift`, `Ghostty/PanePreviewLayout.swift` |
 
 Shared files with personal hooks (expect conflicts here when syncing):
 `SessionSwitcherView.swift`, `GhosttySurfaceSelectionSheet.swift`,
 `GhosttyTerminalPresentationProjector.swift`, `TmuxTerminalSession.swift`,
-`TmuxTerminalScreenAdapter.swift`, `RemuxRootModel.swift`, `RootView.swift`.
+`TmuxTerminalScreenAdapter.swift`, `RemuxRootModel.swift`, `RootView.swift`,
+`GhosttySurfaceScreen.swift`, `GhosttyKeyboardChrome.swift`, `GhosttyComposeBar.swift`.
 
 The agent-state, seat-contract, and grouping features depend on server-side
 conventions from ~/.dotfiles (pane options like `@ai_blocked`, the
