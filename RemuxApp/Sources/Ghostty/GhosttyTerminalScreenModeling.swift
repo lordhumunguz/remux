@@ -171,12 +171,20 @@ protocol GhosttyTmuxActionModeling: ObservableObject {
     func createTmuxWindow() -> GhosttyTmuxModelActionOutcome
 
     @discardableResult
+    func focusTmuxWindow(at index: Int) -> GhosttyTmuxModelActionOutcome
+
+    @discardableResult
     func splitFocusedTmuxPane(
         _ direction: ghostty_action_split_direction_e
     ) -> GhosttyTmuxModelActionOutcome
 
+    var isFocusedWindowZoomed: Bool { get }
+
     @discardableResult
     func setFocusedTmuxPaneZoomed(_ zoomed: Bool) -> GhosttyTmuxModelActionOutcome
+
+    @discardableResult
+    func toggleFocusedTmuxPaneZoom() -> GhosttyTmuxModelActionOutcome
 
     @discardableResult
     func closeTmuxPane(_ id: UUID) -> GhosttyTmuxModelActionOutcome

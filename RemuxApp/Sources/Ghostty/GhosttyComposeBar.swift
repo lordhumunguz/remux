@@ -203,6 +203,7 @@ struct GhosttyComposeBar: View {
     let onRunSnippet: (AgentPromptSnippet) -> Void
     let onResumeAgent: () -> Void
     let onJumpToAgentWindow: () -> Void
+    var onLaunchByron: ((ByronProfile, ByronLaunchAction) -> Void)? = nil
 
     private var attachments: [GhosttyPendingAttachment] {
         composer.attachments
@@ -526,6 +527,17 @@ struct GhosttyComposeBar: View {
                         }
                         .accessibilityIdentifier("terminal.composer.jump-to-agent-window")
                     }
+                }
+            }
+
+            Section("Byron Agents") {
+                ForEach(ByronProfile.allCases) { profile in
+                    Button {
+                        onLaunchByron?(profile, .inCurrentPane)
+                    } label: {
+                        Label(profile.displayName, systemImage: "sparkles")
+                    }
+                    .accessibilityIdentifier("terminal.composer.byron.\(profile.id)")
                 }
             }
         } label: {

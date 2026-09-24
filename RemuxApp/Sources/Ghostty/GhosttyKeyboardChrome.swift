@@ -165,6 +165,12 @@ struct GhosttyKeyboardChrome<ComposerContent: View>: View {
     let onToggleControl: () -> Void
     let onShowShortcuts: () -> Void
     let sendKey: (GhosttySurfaceKeyEvent) -> Bool
+    var isPad: Bool = false
+    var isZoomed: Bool = false
+    var onSplitRight: (() -> Void)? = nil
+    var onSplitDown: (() -> Void)? = nil
+    var onToggleZoom: (() -> Void)? = nil
+    var onLaunchByron: ((ByronProfile, ByronLaunchAction) -> Void)? = nil
     let composerContent: () -> ComposerContent
 
     var body: some View {
@@ -197,9 +203,111 @@ struct GhosttyKeyboardChrome<ComposerContent: View>: View {
         HStack(spacing: isCompact ? 6 : 10) {
             terminalKeyControls
             navigationControls
+            if isPad {
+                padQuickActionControls
+            }
             inputControls
         }
         .frame(maxWidth: .infinity, alignment: .center)
+    }
+
+    @ViewBuilder
+    private var padQuickActionControls: some View {
+        controlGroup {
+            HStack(spacing: 2) {
+                GhosttyKeyboardChromeDockButton(
+                    systemName: "square.split.2x1",
+                    badge: nil,
+                    chromeStyle: chromeStyle,
+                    width: dockButtonWidth,
+                    height: GhosttyKeyboardChromeSizing.dockButtonHeight,
+                    accessibilityLabel: "Split Right",
+                    accessibilityHint: "Splits the focused pane horizontally to the right.",
+                    accessibilityIdentifier: "terminal.split.right",
+                    isActive: false,
+                    isEnabled: isEnabled && !isInteractionLocked,
+                    action: { onSplitRight?() }
+                )
+
+                GhosttyKeyboardChromeDockButton(
+                    systemName: "square.split.1x2",
+                    badge: nil,
+                    chromeStyle: chromeStyle,
+                    width: dockButtonWidth,
+                    height: GhosttyKeyboardChromeSizing.dockButtonHeight,
+                    accessibilityLabel: "Split Down",
+                    accessibilityHint: "Splits the focused pane vertically down.",
+                    accessibilityIdentifier: "terminal.split.down",
+                    isActive: false,
+                    isEnabled: isEnabled && !isInteractionLocked,
+                    action: { onSplitDown?() }
+                )
+
+                GhosttyKeyboardChromeDockButton(
+                    systemName: isZoomed ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
+                    badge: nil,
+                    chromeStyle: chromeStyle,
+                    width: dockButtonWidth,
+                    height: GhosttyKeyboardChromeSizing.dockButtonHeight,
+                    accessibilityLabel: isZoomed ? "Unzoom Pane" : "Zoom Pane",
+                    accessibilityHint: "Toggles full window zoom for the focused pane.",
+                    accessibilityIdentifier: "terminal.zoom",
+                    isActive: isZoomed,
+                    isEnabled: isEnabled && !isInteractionLocked,
+                    action: { onToggleZoom?() }
+                )
+
+                byronLauncherMenu
+            }
+        }
+    }
+
+    private var byronLauncherMenu: some View {
+        Menu {
+            Section("Quick Launch") {
+                ForEach(ByronProfile.allCases) { profile in
+                    Button {
+                        onLaunchByron?(profile, .inCurrentPane)
+                    } label: {
+                        Label(profile.displayName, systemImage: "sparkles")
+                    }
+                }
+            }
+            Section("Split & Launch") {
+                ForEach(ByronProfile.allCases) { profile in
+                    Button {
+                        onLaunchByron?(profile, .splitRight)
+                    } label: {
+                        Label("Split Right: \(profile.shortLabel)", systemImage: "square.split.2x1")
+                    }
+                }
+            }
+            Section("New Window & Launch") {
+                ForEach(ByronProfile.allCases) { profile in
+                    Button {
+                        onLaunchByron?(profile, .newWindow)
+                    } label: {
+                        Label("New Window: \(profile.shortLabel)", systemImage: "rectangle.on.rectangle")
+                    }
+                }
+            }
+        } label: {
+            ZStack {
+                Image(systemName: "sparkles")
+                    .font(.system(size: 16.5, weight: .semibold))
+                    .symbolRenderingMode(.monochrome)
+            }
+            .frame(width: dockButtonWidth, height: GhosttyKeyboardChromeSizing.dockButtonHeight)
+        }
+        .buttonStyle(GhosttyChromeDockButtonStyle(
+            isActive: false,
+            isEnabled: isEnabled && !isInteractionLocked,
+            chromeStyle: chromeStyle,
+            width: dockButtonWidth,
+            height: GhosttyKeyboardChromeSizing.dockButtonHeight
+        ))
+        .accessibilityLabel("Byron Agent Launcher")
+        .accessibilityIdentifier("terminal.byron.launcher")
     }
 
     private var composerSelectorRow: some View {

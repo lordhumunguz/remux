@@ -59,7 +59,8 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
         sendPaste: @escaping (String) -> Bool,
         sendKeyEvent: @escaping (GhosttySurfaceKeyEvent) -> Bool,
         onTrackpadFeedbackChange: @escaping (GhosttyKeyboardCursorTrackpad.FeedbackState) -> Void,
-        onFirstResponderChange: @escaping (Bool) -> Void = { _ in }
+        onFirstResponderChange: @escaping (Bool) -> Void = { _ in },
+        onHardwareShortcut: ((GhosttyHardwareShortcut) -> Void)? = nil
     ) {
         self.isEnabled = isEnabled
         self.wantsFirstResponder = wantsFirstResponder
@@ -73,12 +74,16 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
         self.sendKeyEvent = sendKeyEvent
         self.onTrackpadFeedbackChange = onTrackpadFeedbackChange
         self.onFirstResponderChange = onFirstResponderChange
+        self.onHardwareShortcut = onHardwareShortcut
     }
+
+    let onHardwareShortcut: ((GhosttyHardwareShortcut) -> Void)?
 
     func makeUIView(context: Context) -> GhosttyTerminalResponderUIView {
         let view = GhosttyTerminalResponderUIView(trackpadDriver: trackpadDriver)
         view.backgroundColor = .clear
         view.isAccessibilityElement = false
+        view.onHardwareShortcut = onHardwareShortcut
         responderHandoff.register(view, as: .terminal)
         return view
     }
@@ -94,7 +99,8 @@ struct GhosttyTerminalResponderRepresentable: UIViewRepresentable {
             sendPaste: sendPaste,
             sendKeyEvent: sendKeyEvent,
             onTrackpadFeedbackChange: onTrackpadFeedbackChange,
-            onFirstResponderChange: onFirstResponderChange
+            onFirstResponderChange: onFirstResponderChange,
+            onHardwareShortcut: onHardwareShortcut
         )
     }
 
@@ -139,6 +145,7 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
     private var trackpadFeedbackHandler: ((GhosttyKeyboardCursorTrackpad.FeedbackState) -> Void)?
     private var firstResponderStateHandler: ((Bool) -> Void)?
     private var lastReportedFirstResponderState: Bool?
+    var onHardwareShortcut: ((GhosttyHardwareShortcut) -> Void)?
     private let trackpadDriver: GhosttyKeyboardCursorTrackpadDriver
     lazy var floatingCursorTokenizer: UITextInputTokenizer =
         UITextInputStringTokenizer(textInput: self)
@@ -164,7 +171,8 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
         sendPaste: @escaping (String) -> Bool,
         sendKeyEvent: @escaping (GhosttySurfaceKeyEvent) -> Bool,
         onTrackpadFeedbackChange: @escaping (GhosttyKeyboardCursorTrackpad.FeedbackState) -> Void = { _ in },
-        onFirstResponderChange: @escaping (Bool) -> Void = { _ in }
+        onFirstResponderChange: @escaping (Bool) -> Void = { _ in },
+        onHardwareShortcut: ((GhosttyHardwareShortcut) -> Void)? = nil
     ) {
         let wasInputEnabled = self.isInputEnabled
         let previouslyWantedFirstResponder = self.wantsFirstResponder
@@ -195,6 +203,7 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
         self.sendKeyEventHandler = sendKeyEvent
         self.trackpadFeedbackHandler = onTrackpadFeedbackChange
         self.firstResponderStateHandler = onFirstResponderChange
+        self.onHardwareShortcut = onHardwareShortcut
 
         if isFirstResponder, previousKeyboardAppearance != keyboardAppearance {
             reloadInputViews()
@@ -388,6 +397,19 @@ final class GhosttyTerminalResponderUIView: UIView, UIKeyInput, UITextInputTrait
             "responder.paste bytes=\(text.lengthOfBytes(using: .utf8)) firstResponder=\(isFirstResponder) token=\(activationToken)"
         )
         _ = sendPasteHandler?(text)
+    }
+
+    override var keyCommands: [UIKeyCommand]? {
+        guard isInputEnabled else { return nil }
+        return GhosttyHardwareKeyCommandFactory.makeCommands(action: #selector(handleHardwareKeyCommand(_:)))
+    }
+
+    @objc private func handleHardwareKeyCommand(_ sender: UIKeyCommand) {
+        guard let shortcut = GhosttyHardwareKeyCommandFactory.resolve(
+            input: sender.input,
+            modifierFlags: sender.modifierFlags
+        ) else { return }
+        onHardwareShortcut?(shortcut)
     }
 
     override func pressesBegan(_ presses: Set<UIPress>, with event: UIPressesEvent?) {
