@@ -3,6 +3,8 @@ import UIKit
 
 struct TmuxCommandPaletteSheet: View {
     let theme: TerminalTheme
+    var profileTag: String? = nil
+    var quotaPercent: Int? = nil
     let onSelectAction: (TmuxCommandPaletteAction) -> Void
     @Environment(\.dismiss) private var dismiss
     @State private var searchText = ""
@@ -46,6 +48,26 @@ struct TmuxCommandPaletteSheet: View {
                         dismiss()
                     }
                     .font(.body.weight(.medium))
+                }
+
+                if profileTag != nil || quotaPercent != nil {
+                    ToolbarItem(placement: .principal) {
+                        HStack(spacing: 6) {
+                            Text("Commands")
+                                .font(.headline)
+                            if let profileTag {
+                                Text(profileTag)
+                                    .font(.caption2.weight(.medium))
+                                    .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                                    .padding(.horizontal, 5)
+                                    .padding(.vertical, 2)
+                                    .background(Capsule().fill(TerminalSelectionSheetPalette.row))
+                            }
+                            if let quota = quotaPercent {
+                                TmuxAgentQuotaPill(percent: quota)
+                            }
+                        }
+                    }
                 }
             }
         }

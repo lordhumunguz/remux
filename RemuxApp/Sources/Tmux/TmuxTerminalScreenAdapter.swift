@@ -416,6 +416,41 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             .first
     }
 
+    /// The first currently detected agent resolution in the session, used for
+    /// Byron profile tags and badges.
+    var sessionAgentResolution: AgentResolution? {
+        latestTopology?.panes.lazy
+            .compactMap { pane in
+                AgentDetection.resolve(
+                    tool: self.latestPaneAgentInfo[pane.id]?.agentTool,
+                    command: pane.currentCommand
+                )
+            }
+            .first
+    }
+
+    /// Primary pane agent info (profile, quota, doneAt, gitBranch) for the session switcher and HUD.
+    var primaryPaneAgentInfo: TmuxPaneAgentInfo? {
+        guard let topology = latestTopology else { return nil }
+        // 1. Check active pane in active window
+        if let activeWindowID = topology.activeWindowID,
+           let window = topology.windows.first(where: { $0.id == activeWindowID }),
+           let activePaneID = window.activePaneID,
+           let info = latestPaneAgentInfo[activePaneID],
+           info.state != .idle || info.quotaPercent != nil || info.agentTool != nil || info.isDone {
+            return info
+        }
+        // 2. Check any pane running an agent, sorted by urgency
+        return topology.panes.compactMap { latestPaneAgentInfo[$0.id] }
+            .sorted { (a, b) -> Bool in
+                if a.state.sessionSortRank != b.state.sessionSortRank {
+                    return a.state.sessionSortRank < b.state.sessionSortRank
+                }
+                return (a.quotaPercent ?? 0) > (b.quotaPercent ?? 0)
+            }
+            .first
+    }
+
     /// Windows with at least one pane currently running a detected agent, in
     /// window order. Drives the "jump to agent window" quick action.
     var tmuxAgentTopLevelIDs: [UUID] {

@@ -1,27 +1,36 @@
 import Foundation
 @preconcurrency import UserNotifications
 
-/// Boundary for the "agent blocked" alert so the tmux session stack stays
-/// testable without a notification center.
+/// Boundary for the "agent blocked" and "agent completed" alerts so the tmux
+/// session stack stays testable without a notification center.
 protocol TmuxAgentStateNotifying: Sendable {
     func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification)
     /// Drops the banner for a pane that is no longer blocked or whose
     /// session went away.
     func clearAgentBlocked(sessionName: String, paneID: TmuxPaneID)
+    /// Posts an alert when an agent finishes a turn in a background pane.
+    func notifyAgentCompleted(_ notification: TmuxAgentCompletedNotification)
+    /// Drops the completed banner for a pane.
+    func clearAgentCompleted(sessionName: String, paneID: TmuxPaneID)
 }
 
-/// Posts one local notification per blocked episode. Authorization is
-/// requested lazily on the first alert; a denied or undetermined status
+/// Posts one local notification per blocked or completed episode. Authorization
+/// is requested lazily on the first alert; a denied or undetermined status
 /// simply drops that alert.
 struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
     static let shared = TmuxAgentStateNotifier()
 
     private static let categoryIdentifier = "remux.agent-blocked"
+    private static let completedCategoryIdentifier = "remux.agent-completed"
 
     /// Pane IDs are per-server, so the session scopes the identifier;
     /// without it the same pane on two servers would share one banner.
     static func identifier(sessionName: String, paneID: TmuxPaneID) -> String {
         "\(categoryIdentifier).\(sessionName).\(paneID.rawValue)"
+    }
+
+    static func completedIdentifier(sessionName: String, paneID: TmuxPaneID) -> String {
+        "\(completedCategoryIdentifier).\(sessionName).\(paneID.rawValue)"
     }
 
     func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification) {
@@ -54,6 +63,56 @@ struct TmuxAgentStateNotifier: TmuxAgentStateNotifying {
         let center = UNUserNotificationCenter.current()
         center.removeDeliveredNotifications(withIdentifiers: [identifier])
         center.removePendingNotificationRequests(withIdentifiers: [identifier])
+    }
+
+    func notifyAgentCompleted(_ notification: TmuxAgentCompletedNotification) {
+        let center = UNUserNotificationCenter.current()
+        center.requestAuthorization(options: [.alert, .sound]) { granted, _ in
+            guard granted else { return }
+            let content = UNMutableNotificationContent()
+            content.title = Self.completedTitle(for: notification)
+            content.body = Self.completedBody(for: notification)
+            content.sound = .default
+            content.threadIdentifier = notification.sessionName
+            content.userInfo = [
+                "sessionName": notification.sessionName,
+                "paneID": NSNumber(value: notification.paneID.rawValue),
+            ]
+            let request = UNNotificationRequest(
+                identifier: Self.completedIdentifier(
+                    sessionName: notification.sessionName,
+                    paneID: notification.paneID
+                ),
+                content: content,
+                trigger: nil
+            )
+            UNUserNotificationCenter.current().add(request)
+        }
+    }
+
+    func clearAgentCompleted(sessionName: String, paneID: TmuxPaneID) {
+        let identifier = Self.completedIdentifier(sessionName: sessionName, paneID: paneID)
+        let center = UNUserNotificationCenter.current()
+        center.removeDeliveredNotifications(withIdentifiers: [identifier])
+        center.removePendingNotificationRequests(withIdentifiers: [identifier])
+    }
+
+    static func completedTitle(for notification: TmuxAgentCompletedNotification) -> String {
+        if let tool = notification.agentTool,
+           let resolution = AgentDetection.resolve(tool: tool, command: notification.currentCommand) {
+            return "\(resolution.identity.displayName) finished turn"
+        }
+        return "Agent finished turn"
+    }
+
+    static func completedBody(for notification: TmuxAgentCompletedNotification) -> String {
+        let location = notification.currentPath.isEmpty
+            ? notification.sessionName
+            : "\(notification.sessionName) · \(notification.currentPath)"
+        if let tool = notification.agentTool, !tool.isEmpty {
+            return "\(location): \(tool) is ready for your next prompt."
+        }
+        return "\(location) is ready for your next prompt."
     }
 
     private static func body(for notification: TmuxAgentBlockedNotification) -> String {

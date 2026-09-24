@@ -186,7 +186,8 @@ private struct RemuxWorkspaceShell: View {
                     discoveryStates: model.tmuxSessionDiscoveryStates,
                     selectedSessionID: selectedTerminalID,
                     projectContexts: model.sessionProjectContexts(),
-                    agentsBySessionID: activeSessionAgents
+                    agentsBySessionID: activeSessionAgents,
+                    agentSummariesBySessionID: activeSessionAgentSummaries
                 ),
                 servers: model.library.servers,
                 currentServerID: selectedActiveSession?.target.server.id,
@@ -626,6 +627,24 @@ private struct RemuxWorkspaceShell: View {
             if let agent = entry.model.terminalScreenAdapter.sessionAgent {
                 result[entry.id] = agent
             }
+        }
+    }
+
+    /// Currently detected coding agent metadata and summaries per active session,
+    /// for switcher badges, Byron profile tags, quota pills, and completion recency.
+    private var activeSessionAgentSummaries: [SavedWorkspace.ID: SessionAgentSummary] {
+        model.activeTerminalScreenEntries.reduce(into: [:]) { result, entry in
+            let adapter = entry.model.terminalScreenAdapter
+            let resolution = adapter.sessionAgentResolution
+            let info = adapter.primaryPaneAgentInfo
+            result[entry.id] = SessionAgentSummary(
+                identity: resolution?.identity ?? adapter.sessionAgent,
+                resolution: resolution,
+                quotaPercent: info?.quotaPercent,
+                doneRelativeText: info?.doneRelativeText(),
+                isDone: info?.isDone ?? false,
+                gitBranch: info?.gitBranch
+            )
         }
     }
 

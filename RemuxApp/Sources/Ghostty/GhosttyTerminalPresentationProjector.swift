@@ -433,6 +433,10 @@ struct GhosttyTerminalViewportPresentationProjection: Equatable {
     var canNavigateWindows: Bool {
         windowCount > 1
     }
+
+    var focusedPane: Pane? {
+        panes.first { $0.isFocused } ?? panes.first { $0.id == focusedSurfaceID }
+    }
 }
 
 enum GhosttyTmuxTopologyActionInteractionEffect: Equatable, Sendable {

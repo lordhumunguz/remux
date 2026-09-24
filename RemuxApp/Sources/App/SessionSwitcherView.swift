@@ -1,5 +1,30 @@
 import SwiftUI
 
+struct SessionAgentSummary: Equatable, Sendable {
+    let identity: AgentIdentity?
+    let resolution: AgentResolution?
+    let quotaPercent: Int?
+    let doneRelativeText: String?
+    let isDone: Bool
+    let gitBranch: String?
+
+    init(
+        identity: AgentIdentity? = nil,
+        resolution: AgentResolution? = nil,
+        quotaPercent: Int? = nil,
+        doneRelativeText: String? = nil,
+        isDone: Bool = false,
+        gitBranch: String? = nil
+    ) {
+        self.identity = identity
+        self.resolution = resolution
+        self.quotaPercent = quotaPercent
+        self.doneRelativeText = doneRelativeText
+        self.isDone = isDone
+        self.gitBranch = gitBranch
+    }
+}
+
 struct ActiveSessionSwitcherItem: Identifiable, Equatable {
     let id: SavedWorkspace.ID
     let sessionName: String
@@ -17,6 +42,11 @@ struct ActiveSessionSwitcherItem: Identifiable, Equatable {
     }
 
     var agent: AgentIdentity? = nil
+    var agentResolution: AgentResolution? = nil
+    var quotaPercent: Int? = nil
+    var doneRelativeText: String? = nil
+    var isDone: Bool = false
+    var gitBranch: String? = nil
 }
 
 struct RemoteTmuxSessionIdentity: Hashable {
@@ -79,12 +109,14 @@ struct SessionSwitcherProjection: Equatable {
         discoveryStates: [SavedServer.ID: TmuxSessionDiscoveryState] = [:],
         selectedSessionID: SavedWorkspace.ID?,
         projectContexts: [SavedWorkspace.ID: RemuxProjectGrouping.Context] = [:],
-        agentsBySessionID: [SavedWorkspace.ID: AgentIdentity] = [:]
+        agentsBySessionID: [SavedWorkspace.ID: AgentIdentity] = [:],
+        agentSummariesBySessionID: [SavedWorkspace.ID: SessionAgentSummary] = [:]
     ) {
         self.activeSessions = RemuxActiveSessionCollection
             .sortedForDisplayByAgentState(activeSessions)
             .map { session in
-                ActiveSessionSwitcherItem(
+                let summary = agentSummariesBySessionID[session.id]
+                return ActiveSessionSwitcherItem(
                     id: session.id,
                     sessionName: session.target.workspace.sessionName,
                     serverName: session.target.server.displayName,
@@ -92,7 +124,12 @@ struct SessionSwitcherProjection: Equatable {
                     agentState: session.agentState,
                     isSelected: session.id == selectedSessionID,
                     projectContext: projectContexts[session.id],
-                    agent: agentsBySessionID[session.id]
+                    agent: summary?.identity ?? agentsBySessionID[session.id],
+                    agentResolution: summary?.resolution,
+                    quotaPercent: summary?.quotaPercent,
+                    doneRelativeText: summary?.doneRelativeText,
+                    isDone: summary?.isDone ?? false,
+                    gitBranch: summary?.gitBranch
                 )
             }
 
@@ -634,11 +671,22 @@ private struct ActiveSessionSwitcherRow: View {
                         .lineLimit(1)
                         .truncationMode(.middle)
 
-                    if let agent = session.agent {
+                    if let resolution = session.agentResolution {
+                        TmuxAgentProfilePillView(
+                            resolution: resolution,
+                            quotaPercent: session.quotaPercent,
+                            doneRelativeText: session.agentState == .unseen ? session.doneRelativeText : nil,
+                            prefersCompactProfile: true
+                        )
+                    } else if let agent = session.agent {
                         Text(agent.glyph)
                             .font(.callout.weight(.semibold))
                             .foregroundStyle(agent.accent)
                             .accessibilityHidden(true)
+
+                        if let quota = session.quotaPercent {
+                            TmuxAgentQuotaPill(percent: quota)
+                        }
                     }
                 }
 
@@ -650,6 +698,19 @@ private struct ActiveSessionSwitcherRow: View {
                         .accessibilityHidden(true)
 
                     TerminalRuntimeStateIndicator(state: session.runtimeState)
+
+                    if let branch = session.gitBranch, !branch.isEmpty {
+                        Text("·")
+                            .accessibilityHidden(true)
+
+                        HStack(spacing: 3) {
+                            Image(systemName: "arrow.triangle.branch")
+                                .font(.system(size: 10))
+                            Text(branch)
+                                .font(.footnote)
+                                .lineLimit(1)
+                        }
+                    }
                 }
                 .font(.footnote)
                 .foregroundStyle(TerminalSelectionSheetPalette.secondary)
@@ -658,9 +719,10 @@ private struct ActiveSessionSwitcherRow: View {
 
             Spacer(minLength: 8)
 
-            if session.agentState != .idle {
+            if session.agentState != .idle || session.isDone {
                 TmuxAgentStateBadge(
                     state: session.agentState,
+                    isDone: session.isDone,
                     font: .system(size: 14, weight: .bold)
                 )
                 .accessibilityHidden(true)
@@ -683,13 +745,15 @@ private struct ActiveSessionSwitcherRow: View {
     private var accessibilityLabel: String {
         let status = TerminalRuntimeStatusPresentation.projection(for: session.runtimeState).label
         let current = session.isSelected ? ", current session" : ""
-        let agentState = TmuxAgentStateBadge.accessibilityLabel(for: session.agentState)
+        let agentState = TmuxAgentStateBadge.accessibilityLabel(for: session.agentState, isDone: session.isDone)
             .map { ", \($0)" } ?? ""
         let agent = session.agent.map { ", \($0.displayName)" } ?? ""
+        let branch = session.gitBranch.map { ", branch \($0)" } ?? ""
+        let quota = session.quotaPercent.map { ", weekly quota \($0) percent" } ?? ""
         if title != session.sessionName {
-            return "\(title), \(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(current)"
+            return "\(title), \(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(branch)\(quota)\(current)"
         }
-        return "\(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(current)"
+        return "\(session.sessionName), \(session.serverName), \(status)\(agentState)\(agent)\(branch)\(quota)\(current)"
     }
 }
 

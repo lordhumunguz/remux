@@ -69,6 +69,7 @@ final class TmuxTerminalSession: ObservableObject {
     private var isAppActive = true
     private var isPresented = false
     private var agentBlockedTracker = TmuxAgentBlockedTracker()
+    private var agentCompletedTracker = TmuxAgentCompletedTracker()
     private var agentMetadataRepollGate = TmuxAgentMetadataRepollGate(
         minimumInterval: TmuxTerminalSession.agentMetadataRepollMinInterval
     )
@@ -563,6 +564,7 @@ final class TmuxTerminalSession: ObservableObject {
         paneAgentInfo = [:]
         clearAgentBlockedNotifications(for: agentBlockedTracker.blockedPaneIDs)
         agentBlockedTracker.reset()
+        agentCompletedTracker.reset()
         agentMetadataRepollGate.reset()
     }
 
@@ -586,18 +588,39 @@ final class TmuxTerminalSession: ObservableObject {
         clearAgentBlockedNotifications(
             for: previouslyBlocked.subtracting(agentBlockedTracker.blockedPaneIDs)
         )
-        guard !newlyBlockedPaneIDs.isEmpty, let agentStateNotifier else { return }
+
+        let newlyCompletedPaneIDs = agentCompletedTracker.update(with: infos)
+
+        let currentViewedPaneID = viewedPaneID()
+        if let currentViewedPaneID {
+            clearAgentCompletedNotification(for: currentViewedPaneID)
+        }
+
+        guard let agentStateNotifier else { return }
 
         let policy = TmuxAgentBlockedAlertPolicy(
             isAppActive: isAppActive,
             isSessionPresented: isPresented,
-            viewedPaneID: viewedPaneID()
+            viewedPaneID: currentViewedPaneID
         )
+
         for paneID in newlyBlockedPaneIDs where policy.shouldNotify(paneID: paneID) {
             let pane = topology?.panes.first(where: { $0.id == paneID })
             agentStateNotifier.notifyAgentBlocked(TmuxAgentBlockedNotification(
                 sessionName: topology?.sessionName ?? "",
                 paneID: paneID,
+                currentCommand: pane?.currentCommand ?? "",
+                currentPath: pane?.currentPath ?? ""
+            ))
+        }
+
+        for paneID in newlyCompletedPaneIDs where policy.shouldNotify(paneID: paneID) {
+            let pane = topology?.panes.first(where: { $0.id == paneID })
+            let info = infos[paneID]
+            agentStateNotifier.notifyAgentCompleted(TmuxAgentCompletedNotification(
+                sessionName: topology?.sessionName ?? "",
+                paneID: paneID,
+                agentTool: info?.agentTool,
                 currentCommand: pane?.currentCommand ?? "",
                 currentPath: pane?.currentPath ?? ""
             ))
@@ -612,6 +635,12 @@ final class TmuxTerminalSession: ObservableObject {
         for paneID in paneIDs.sorted() {
             agentStateNotifier.clearAgentBlocked(sessionName: sessionName, paneID: paneID)
         }
+    }
+
+    private func clearAgentCompletedNotification(for paneID: TmuxPaneID) {
+        guard let agentStateNotifier else { return }
+        let sessionName = topology?.sessionName ?? ""
+        agentStateNotifier.clearAgentCompleted(sessionName: sessionName, paneID: paneID)
     }
 
     private func viewedPaneID() -> TmuxPaneID? {

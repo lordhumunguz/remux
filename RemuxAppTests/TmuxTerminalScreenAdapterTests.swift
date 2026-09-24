@@ -1275,6 +1275,8 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
 private final class RecordingTmuxAgentStateNotifier: TmuxAgentStateNotifying, @unchecked Sendable {
     private(set) var notifications: [TmuxAgentBlockedNotification] = []
     private(set) var clears: [(sessionName: String, paneID: TmuxPaneID)] = []
+    private(set) var completedNotifications: [TmuxAgentCompletedNotification] = []
+    private(set) var completedClears: [(sessionName: String, paneID: TmuxPaneID)] = []
 
     func notifyAgentBlocked(_ notification: TmuxAgentBlockedNotification) {
         notifications.append(notification)
@@ -1282,5 +1284,13 @@ private final class RecordingTmuxAgentStateNotifier: TmuxAgentStateNotifying, @u
 
     func clearAgentBlocked(sessionName: String, paneID: TmuxPaneID) {
         clears.append((sessionName, paneID))
+    }
+
+    func notifyAgentCompleted(_ notification: TmuxAgentCompletedNotification) {
+        completedNotifications.append(notification)
+    }
+
+    func clearAgentCompleted(sessionName: String, paneID: TmuxPaneID) {
+        completedClears.append((sessionName, paneID))
     }
 }

@@ -40,7 +40,7 @@ are where sync conflicts land.
 
 | Feature | Owned files |
 | --- | --- |
-| Agent-state protocol (pane marks, badges, urgency ordering, blocked alerts, `@ai_done_at` completion recency) | `Tmux/TmuxPaneAgentState.swift`, `Tmux/TmuxAgentStateNotifier.swift`, `Ghostty/TmuxAgentStateBadge.swift` |
+| Agent-state protocol (pane marks, badges, urgency ordering, blocked alerts, `@ai_done_at` completion recency, background completion notifications, terminal agent HUD) | `Tmux/TmuxPaneAgentState.swift`, `Tmux/TmuxAgentStateNotifier.swift`, `Ghostty/TmuxAgentStateBadge.swift`, `Ghostty/GhosttyAgentHUDPill.swift` |
 | Single-seat contract (seat handoff, accordion coordination, clean detach) | `Tmux/TmuxSeatContract.swift`, `Tmux/TmuxResponsiveAccordion.swift`, `SSH/TmuxSeatOccupancyProbe.swift` |
 | Project/worktree grouping | `Domain/RemuxProjectGrouping.swift` |
 | Agent identity, snippets, and Byron profiles (work/personal/muse/grok, quota badges, multi-action launcher) | `Domain/AgentIdentity.swift`, `Domain/AgentPromptSnippets.swift`, `Domain/ByronProfile.swift` |
