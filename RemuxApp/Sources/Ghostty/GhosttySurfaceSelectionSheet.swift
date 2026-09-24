@@ -739,7 +739,7 @@ private struct GhosttyPaneTopologyDiagram: View {
         let context = pane.projectContext
         return VStack(spacing: 2) {
             HStack(spacing: 4) {
-                TmuxAgentStateBadge(state: pane.agentInfo.state)
+                TmuxAgentStateBadge(state: pane.agentInfo.state, isDone: pane.agentInfo.isDone)
 
                 // A worktree directory presents as its canonical project with
                 // the task detail on a secondary line; everything else keeps
@@ -770,6 +770,7 @@ private struct GhosttyPaneTopologyDiagram: View {
                 TmuxAgentProfilePillView(
                     resolution: resolution,
                     quotaPercent: pane.agentInfo.quotaPercent,
+                    doneRelativeText: pane.agentInfo.doneRelativeText(),
                     prefersCompactProfile: size.width < 140
                 )
             } else {
@@ -782,6 +783,16 @@ private struct GhosttyPaneTopologyDiagram: View {
                     if let quota = pane.agentInfo.quotaPercent {
                         TmuxAgentQuotaPill(percent: quota)
                             .fixedSize()
+                    }
+
+                    if let doneText = pane.agentInfo.doneRelativeText() {
+                        Text("✓ \(doneText)")
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(TmuxAgentStatePalette.done)
+                            .lineLimit(1)
+                            .padding(.horizontal, 4)
+                            .padding(.vertical, 1)
+                            .background(TmuxAgentStatePalette.done.opacity(0.18), in: Capsule())
                     }
                 }
                 .font(.system(size: 11, weight: .medium))
@@ -843,8 +854,11 @@ private struct GhosttyPaneTopologyDiagram: View {
         } else {
             parts.append(commandName(for: pane))
         }
-        if let agentLabel = TmuxAgentStateBadge.accessibilityLabel(for: pane.agentInfo.state) {
+        if let agentLabel = TmuxAgentStateBadge.accessibilityLabel(for: pane.agentInfo.state, isDone: pane.agentInfo.isDone) {
             parts.append(agentLabel)
+        }
+        if let doneText = pane.agentInfo.doneRelativeText() {
+            parts.append("finished \(doneText)")
         }
         if let quota = pane.agentInfo.quotaPercent {
             parts.append("weekly quota \(quota) percent")

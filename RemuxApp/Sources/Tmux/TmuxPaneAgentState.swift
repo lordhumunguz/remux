@@ -45,9 +45,36 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
     var agentModel: String?
     var agentTool: String?
     var quotaPercent: Int?
+    var doneAt: Date?
 
     var isBlocked: Bool {
         state == .blocked
+    }
+
+    var isWorking: Bool {
+        state == .working
+    }
+
+    var isDone: Bool {
+        doneAt != nil
+    }
+
+    func doneRelativeText(now: Date = Date()) -> String? {
+        guard let doneAt else { return nil }
+        let elapsed = now.timeIntervalSince(doneAt)
+        guard elapsed >= 0 else { return nil }
+        if elapsed < 60 {
+            return "just now"
+        } else if elapsed < 3600 {
+            let minutes = max(1, Int(elapsed / 60))
+            return "\(minutes)m"
+        } else if elapsed < 86400 {
+            let hours = max(1, Int(elapsed / 3600))
+            return "\(hours)h"
+        } else {
+            let days = max(1, Int(elapsed / 86400))
+            return "\(days)d"
+        }
     }
 
     static let idle = TmuxPaneAgentInfo(state: .idle)
@@ -58,7 +85,8 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
         gitRepo: String? = nil,
         agentModel: String? = nil,
         agentTool: String? = nil,
-        quotaPercent: Int? = nil
+        quotaPercent: Int? = nil,
+        doneAt: Date? = nil
     ) {
         self.state = state
         self.gitBranch = gitBranch
@@ -66,6 +94,7 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
         self.agentModel = agentModel
         self.agentTool = agentTool
         self.quotaPercent = quotaPercent
+        self.doneAt = doneAt
     }
 }
 
@@ -87,6 +116,7 @@ enum TmuxPaneAgentMetadata {
         "#{@pane_agent_model}",
         "#{@pane_agent_tool}",
         "#{@pane_agent_pct}",
+        "#{@ai_done_at}",
     ].joined(separator: fieldSeparator)
 
     static let listPanesCommand = "list-panes -s -F '\(formatString)'"
@@ -122,10 +152,17 @@ enum TmuxPaneAgentMetadata {
                 gitRepo: fields.count > 5 ? nilIfEmpty(fields[5]) : nil,
                 agentModel: fields.count > 6 ? nilIfEmpty(fields[6]) : nil,
                 agentTool: fields.count > 7 ? nilIfEmpty(fields[7]) : nil,
-                quotaPercent: fields.count > 8 ? parseQuotaPercent(fields[8]) : nil
+                quotaPercent: fields.count > 8 ? parseQuotaPercent(fields[8]) : nil,
+                doneAt: fields.count > 9 ? parseEpochDate(fields[9]) : nil
             )
         }
         return infos
+    }
+
+    static func parseEpochDate(_ field: some StringProtocol) -> Date? {
+        let trimmed = field.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, let seconds = TimeInterval(trimmed), seconds > 0 else { return nil }
+        return Date(timeIntervalSince1970: seconds)
     }
 
     static func parseQuotaPercent(_ field: some StringProtocol) -> Int? {
