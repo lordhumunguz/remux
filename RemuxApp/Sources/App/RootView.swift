@@ -1880,7 +1880,7 @@ private struct LibraryEmptyState: View {
                 Image(systemName: "server.rack")
             }
         } description: {
-            Text("Add an SSH server to start using tmux sessions from this phone.")
+            Text("Add an SSH server to start using tmux sessions from this device.")
         } actions: {
             VStack(spacing: 12) {
                 LibraryEmptyAddServerButton(action: onAddServer)

@@ -496,6 +496,7 @@ struct RemuxAppDependencies: Sendable {
                 settings: {
                     var settings = TerminalSettings.default
                     settings.zoomMultipaneWindowsByDefault = deviceDefaultZoomMultipaneWindows
+                    settings.autoReconnectOnLaunch = false
                     return settings
                 }()
             ),
