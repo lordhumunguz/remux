@@ -151,10 +151,69 @@ final class TmuxPaneAgentStateTests: XCTestCase {
             "#{@pane_agent_model}",
             "#{@pane_agent_tool}",
             "#{@pane_agent_pct}",
+            "#{@ai_done_at}",
         ] {
             XCTAssertTrue(command.contains(option), "missing \(option)")
         }
         XCTAssertTrue(command.hasPrefix("list-panes -s -F "))
+    }
+
+    func testParsesDoneAtEpochTimestamp() {
+        let epoch: TimeInterval = 1758679200
+        let fields = [
+            "%1", "0", "0", "1", "main", "remux", "claude-sonnet", "claude:work", "36",
+            String(Int(epoch))
+        ].joined(separator: separator)
+
+        let infos = TmuxPaneAgentMetadata.parseListPanesBody(fields)
+        guard let info = infos[1] else {
+            return XCTFail("Expected info for pane 1")
+        }
+
+        XCTAssertEqual(info.state, .unseen)
+        XCTAssertEqual(info.agentTool, "claude:work")
+        XCTAssertEqual(info.quotaPercent, 36)
+        XCTAssertEqual(info.doneAt, Date(timeIntervalSince1970: epoch))
+        XCTAssertTrue(info.isDone)
+
+        XCTAssertNil(TmuxPaneAgentMetadata.parseEpochDate(""))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseEpochDate("0"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseEpochDate("-10"))
+        XCTAssertNil(TmuxPaneAgentMetadata.parseEpochDate("not_a_number"))
+    }
+
+    func testDoneRelativeTextFormatting() {
+        let base = Date(timeIntervalSince1970: 100_000)
+
+        var info = TmuxPaneAgentInfo(state: .idle, doneAt: Date(timeIntervalSince1970: 99_980))
+        XCTAssertEqual(info.doneRelativeText(now: base), "just now")
+
+        info.doneAt = Date(timeIntervalSince1970: 99_880) // 120s ago
+        XCTAssertEqual(info.doneRelativeText(now: base), "2m")
+
+        info.doneAt = Date(timeIntervalSince1970: 92_800) // 7200s (2h) ago
+        XCTAssertEqual(info.doneRelativeText(now: base), "2h")
+
+        info.doneAt = Date(timeIntervalSince1970: 10_000) // 90000s (1d) ago
+        XCTAssertEqual(info.doneRelativeText(now: base), "1d")
+
+        info.doneAt = Date(timeIntervalSince1970: 100_050) // future
+        XCTAssertNil(info.doneRelativeText(now: base))
+
+        let noDone = TmuxPaneAgentInfo(state: .idle)
+        XCTAssertNil(noDone.doneRelativeText(now: base))
+    }
+
+    func testGracefulDegradationWith9Fields() {
+        // Line with 9 fields (no @ai_done_at from older server)
+        let fields9 = ["%1", "0", "0", "0", "main", "remux", "claude-sonnet", "claude:work", "36"].joined(separator: separator)
+        let infos = TmuxPaneAgentMetadata.parseListPanesBody(fields9)
+
+        XCTAssertEqual(infos[1]?.state, .idle)
+        XCTAssertEqual(infos[1]?.agentTool, "claude:work")
+        XCTAssertEqual(infos[1]?.quotaPercent, 36)
+        XCTAssertNil(infos[1]?.doneAt)
+        XCTAssertFalse(infos[1]?.isDone ?? true)
     }
 
     func testSessionAggregateRanksBlockedAboveUnseenAboveWorking() {

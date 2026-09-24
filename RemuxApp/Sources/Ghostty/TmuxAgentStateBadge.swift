@@ -5,14 +5,16 @@ import SwiftUI
 enum TmuxAgentStatePalette {
     static let blocked = Color(red: 0xF7 / 255, green: 0x76 / 255, blue: 0x8E / 255)
     static let working = Color(red: 0xE0 / 255, green: 0xAF / 255, blue: 0x68 / 255)
+    static let done = Color(red: 0x9E / 255, green: 0xCE / 255, blue: 0x6A / 255)
     static let unseen = TerminalSelectionSheetPalette.secondary
 }
 
 /// The pane-mark badge shared by the pane topology cards and the session
-/// switcher rows: `!` when blocked, `⚡` when working, a dot when unseen.
-/// Renders nothing for idle panes.
+/// switcher rows: `!` when blocked, `⚡` when working, `✓` when finished,
+/// or a dot when unseen. Renders nothing for idle non-agent panes.
 struct TmuxAgentStateBadge: View {
     let state: TmuxPaneAgentState
+    var isDone: Bool = false
     var font: Font = .system(size: 12, weight: .bold)
 
     var body: some View {
@@ -26,24 +28,36 @@ struct TmuxAgentStateBadge: View {
                 .font(font)
                 .foregroundStyle(TmuxAgentStatePalette.working)
         case .unseen:
-            Circle()
-                .fill(TmuxAgentStatePalette.unseen)
-                .frame(width: 6, height: 6)
+            if isDone {
+                Text("✓")
+                    .font(font)
+                    .foregroundStyle(TmuxAgentStatePalette.done)
+            } else {
+                Circle()
+                    .fill(TmuxAgentStatePalette.unseen)
+                    .frame(width: 6, height: 6)
+            }
         case .idle:
-            EmptyView()
+            if isDone {
+                Text("✓")
+                    .font(font)
+                    .foregroundStyle(TmuxAgentStatePalette.done)
+            } else {
+                EmptyView()
+            }
         }
     }
 
-    static func accessibilityLabel(for state: TmuxPaneAgentState) -> String? {
+    static func accessibilityLabel(for state: TmuxPaneAgentState, isDone: Bool = false) -> String? {
         switch state {
         case .blocked:
             "agent blocked"
         case .working:
             "agent working"
         case .unseen:
-            "unseen update"
+            isDone ? "agent finished" : "unseen update"
         case .idle:
-            nil
+            isDone ? "agent finished" : nil
         }
     }
 }
@@ -86,10 +100,11 @@ struct TmuxAgentQuotaPill: View {
 }
 
 /// Renders the agent identity glyph, Byron profile name (or compact profile tag),
-/// and quota percent pill.
+/// quota percent pill, and optional completion recency pill.
 struct TmuxAgentProfilePillView: View {
     let resolution: AgentResolution
     var quotaPercent: Int? = nil
+    var doneRelativeText: String? = nil
     var prefersCompactProfile: Bool = false
 
     var body: some View {
@@ -108,6 +123,17 @@ struct TmuxAgentProfilePillView: View {
             if let quotaPercent {
                 TmuxAgentQuotaPill(percent: quotaPercent)
                     .fixedSize()
+            }
+
+            if let doneRelativeText {
+                Text("✓ \(doneRelativeText)")
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(TmuxAgentStatePalette.done)
+                    .lineLimit(1)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 1)
+                    .background(TmuxAgentStatePalette.done.opacity(0.18), in: Capsule())
+                    .accessibilityLabel("finished \(doneRelativeText)")
             }
         }
     }
