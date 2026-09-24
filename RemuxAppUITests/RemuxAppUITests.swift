@@ -629,6 +629,30 @@ final class RemuxAppUITests: XCTestCase {
         XCTAssertEqual(zoom.value as? String, "1")
     }
 
+    func testWorkflowSettingsExposeAutoReconnectAndSeatTakeover() {
+        launchSimulatorApp()
+        XCTAssertTrue(app.buttons["library.settings"].waitForExistence(timeout: 5))
+        app.buttons["library.settings"].tap()
+
+        let autoReconnect = app.switches["settings.auto-reconnect-on-launch"]
+        for _ in 0..<3 where !autoReconnect.exists {
+            settingsForm.swipeUp()
+        }
+        XCTAssertTrue(autoReconnect.waitForExistence(timeout: 2))
+        XCTAssertEqual(autoReconnect.label, "Auto-reconnect on launch")
+        XCTAssertEqual(autoReconnect.value as? String, "0")
+
+        let seatTakeover = app.switches["settings.auto-confirm-seat-takeover"]
+        for _ in 0..<3 where !seatTakeover.exists {
+            settingsForm.swipeUp()
+        }
+        XCTAssertTrue(seatTakeover.waitForExistence(timeout: 2))
+        XCTAssertEqual(seatTakeover.label, "Auto-takeover tmux seat")
+        XCTAssertEqual(seatTakeover.value as? String, "0")
+
+        attachScreenshot(named: "settings-workflow-toggles")
+    }
+
     func testSettingsOpenShortcutCollections() {
         launchSimulatorApp()
         XCTAssertTrue(app.buttons["library.settings"].waitForExistence(timeout: 5))
