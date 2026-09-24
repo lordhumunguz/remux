@@ -286,7 +286,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                             sendPaste: sendTerminalPaste,
                             sendKeyEvent: sendTerminalKeyEvent,
                             onTrackpadFeedbackChange: { trackpadFeedback = $0 },
-                            onFirstResponderChange: { isTerminalResponderFirstResponder = $0 }
+                            onFirstResponderChange: { isTerminalResponderFirstResponder = $0 },
+                            onHardwareShortcut: handleHardwareShortcut
                         )
                         .frame(
                             width: terminalViewportSize.width,
@@ -448,7 +449,21 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                             onToggleKeyboard: toggleKeyboardChrome,
                             onToggleControl: toggleControlModifier,
                             onShowShortcuts: showShortcutPalette,
-                            sendKey: sendTerminalKeyEvent
+                            sendKey: sendTerminalKeyEvent,
+                            isPad: chrome.isPad,
+                            isZoomed: model.isFocusedWindowZoomed,
+                            onSplitRight: {
+                                splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_RIGHT, event: "ui.dock.splitRight")
+                            },
+                            onSplitDown: {
+                                splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_DOWN, event: "ui.dock.splitDown")
+                            },
+                            onToggleZoom: {
+                                _ = model.toggleFocusedTmuxPaneZoom()
+                            },
+                            onLaunchByron: { profile, action in
+                                launchByronProfile(profile, action: action)
+                            }
                         ) {
                             selectedComposerBar()
                         }
@@ -760,7 +775,10 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 canJumpToAgentWindow: model.canJumpToTmuxAgentTopLevel,
                 onRunSnippet: runSnippetFromComposer,
                 onResumeAgent: resumeFocusedAgentFromComposer,
-                onJumpToAgentWindow: jumpToAgentWindowFromComposer
+                onJumpToAgentWindow: jumpToAgentWindowFromComposer,
+                onLaunchByron: { profile, action in
+                    launchByronProfile(profile, action: action)
+                }
             )
         }
     }
@@ -2253,6 +2271,94 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
         }
     }
 
+    private func createNewWindow(event: String = "ui.shortcut.newWindow") {
+        let effect = model.createTmuxWindowInteractionEffect()
+        performTopologyActionInteraction(effect) {
+            model.createTmuxWindow()
+        }
+    }
+
+    private func splitFocusedPane(
+        _ direction: ghostty_action_split_direction_e,
+        event: String = "ui.shortcut.splitPane"
+    ) {
+        let effect = model.splitFocusedTmuxPaneInteractionEffect()
+        performTopologyActionInteraction(effect) {
+            model.splitFocusedTmuxPane(direction)
+        }
+    }
+
+    private func closeFocusedPane() {
+        guard let paneID = model.terminalInteractionProjection.selectedActiveLeafID else { return }
+        let topLevelID = model.selectedPaneSheetPresentationProjection()?.topLevelID ?? UUID()
+        let effect = model.closeTmuxPaneInteractionEffect(paneID, inTopLevel: topLevelID)
+        performTopologyActionInteraction(effect) {
+            model.closeTmuxPane(paneID)
+        }
+    }
+
+    private func resumeFocusedAgent() {
+        guard let agent = focusedResumableAgent, let command = agent.resumeCommand else { return }
+        _ = sendTerminalText(command)
+    }
+
+    private func launchByronProfile(_ profile: ByronProfile, action: ByronLaunchAction = .inCurrentPane) {
+        switch action {
+        case .inCurrentPane:
+            _ = sendTerminalText(profile.executionLine)
+        case .splitRight:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_RIGHT, event: "ui.byron.splitRight")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                _ = sendTerminalText(profile.executionLine)
+            }
+        case .splitDown:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_DOWN, event: "ui.byron.splitDown")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                _ = sendTerminalText(profile.executionLine)
+            }
+        case .newWindow:
+            createNewWindow(event: "ui.byron.newWindow")
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+                _ = sendTerminalText(profile.executionLine)
+            }
+        }
+    }
+
+    private func handleHardwareShortcut(_ shortcut: GhosttyHardwareShortcut) {
+        switch shortcut {
+        case .newWindow:
+            createNewWindow()
+        case .splitPaneRight:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_RIGHT, event: "ui.shortcut.splitRight")
+        case .splitPaneDown:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_DOWN, event: "ui.shortcut.splitDown")
+        case .closePane:
+            closeFocusedPane()
+        case .previousWindow:
+            _ = model.focusAdjacentTmuxTopLevel(.previous)
+        case .nextWindow:
+            _ = model.focusAdjacentTmuxTopLevel(.next)
+        case .selectWindow(let index):
+            _ = model.focusTmuxWindow(at: index)
+        case .toggleZoom:
+            _ = model.toggleFocusedTmuxPaneZoom()
+        case .showSessions:
+            onShowSessions()
+        case .resumeAgent:
+            resumeFocusedAgent()
+        case .jumpToBlockedAgent:
+            _ = model.jumpToBlockedAgent()
+        case .toggleComposer:
+            if isActiveComposerPresented {
+                closeComposer()
+            } else {
+                openComposer()
+            }
+        case .clearScreen:
+            _ = sendTerminalText("\u{000C}")
+        }
+    }
+
     private func selectTmuxPaneFromSelectionSheet(_ id: UUID) {
         GhosttyRuntimeTrace.flowBegin(
             GhosttyRuntimeTrace.paneSwitchFlow,
@@ -2609,16 +2715,20 @@ struct GhosttyTerminalViewportTraceLayoutContext: Equatable {
 struct GhosttyPhoneChromeLayout: Equatable {
     let screenSize: CGSize
 
+    var isPad: Bool {
+        screenSize.width >= 600
+    }
+
     var isLandscape: Bool {
         screenSize.width > screenSize.height
     }
 
     var isCompact: Bool {
-        isLandscape || screenSize.width < 420
+        !isPad && (isLandscape || screenSize.width < 420)
     }
 
     var surfaceHorizontalPadding: CGFloat {
-        isCompact ? 8 : 12
+        isPad ? 24 : (isCompact ? 8 : 12)
     }
 
     var bottomPadding: CGFloat {

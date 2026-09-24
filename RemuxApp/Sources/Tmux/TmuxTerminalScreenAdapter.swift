@@ -923,6 +923,20 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         return .queued
     }
 
+    func focusTmuxWindow(at index: Int) -> GhosttyTmuxModelActionOutcome {
+        guard
+            let controller,
+            let topology = latestTopology,
+            index >= 0,
+            index < topology.windows.count
+        else {
+            return .missingTarget(.adjacentWindow)
+        }
+        let targetWindow = topology.windows[index]
+        requestWindowSelection(targetWindow, in: topology, controller: controller)
+        return .queued
+    }
+
     func focusNextTmuxAgentTopLevel() -> GhosttyTmuxModelActionOutcome {
         guard let controller, let topology = latestTopology else {
             return .missingTarget(.agentWindow)
@@ -1041,6 +1055,14 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         return .queued
     }
 
+    var isFocusedWindowZoomed: Bool {
+        guard let topology = latestTopology,
+              let activeWindowID = topology.activeWindowID,
+              let window = topology.windows.first(where: { $0.id == activeWindowID })
+        else { return false }
+        return window.zoomed
+    }
+
     func setFocusedTmuxPaneZoomed(_ zoomed: Bool) -> GhosttyTmuxModelActionOutcome {
         guard let controller,
               let activeManagedPaneID,
@@ -1061,6 +1083,10 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
             }
         )
         return .queued
+    }
+
+    func toggleFocusedTmuxPaneZoom() -> GhosttyTmuxModelActionOutcome {
+        setFocusedTmuxPaneZoomed(!isFocusedWindowZoomed)
     }
 
     func setZoomMultipaneWindowsByDefault(_ enabled: Bool) {

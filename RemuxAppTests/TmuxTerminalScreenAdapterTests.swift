@@ -1184,6 +1184,85 @@ final class TmuxTerminalScreenAdapterTests: XCTestCase {
         await session.shutdown()
     }
 
+    func testFocusTmuxWindowAtIndex() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "dev",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "editor", zoomed: false),
+                window(id: 2, active: false, paneID: 11, name: "terminal", zoomed: false),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "nvim"),
+                pane(id: 11, windowID: 2, currentCommand: "zsh"),
+            ],
+            activeWindowID: 1
+        ))
+
+        let validOutcome = adapter.focusTmuxWindow(at: 1)
+        XCTAssertEqual(validOutcome, .queued)
+
+        let invalidOutcome = adapter.focusTmuxWindow(at: 5)
+        XCTAssertEqual(invalidOutcome, .missingTarget(.adjacentWindow))
+
+        let negativeOutcome = adapter.focusTmuxWindow(at: -1)
+        XCTAssertEqual(negativeOutcome, .missingTarget(.adjacentWindow))
+
+        adapter.invalidate()
+        await session.shutdown()
+    }
+
+    func testIsFocusedWindowZoomedAndToggleZoom() async throws {
+        let runtime = try GhosttyKitRuntime()
+        let session = makeSession(runtime: runtime)
+        let adapter = TmuxTerminalScreenAdapter()
+        adapter.activate(
+            session: session,
+            initialViewportHandler: { _, _, _ in },
+            viewportStabilityHandler: { _ in }
+        )
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "dev",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "editor", zoomed: false),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "nvim"),
+            ],
+            activeWindowID: 1
+        ))
+
+        XCTAssertFalse(adapter.isFocusedWindowZoomed)
+
+        let outcome = adapter.toggleFocusedTmuxPaneZoom()
+        XCTAssertEqual(outcome, .queued)
+
+        session.handleTopology(TmuxSessionController.TopologySnapshot(
+            sessionName: "dev",
+            windows: [
+                window(id: 1, active: true, paneID: 10, name: "editor", zoomed: true),
+            ],
+            panes: [
+                pane(id: 10, windowID: 1, currentCommand: "nvim"),
+            ],
+            activeWindowID: 1
+        ))
+
+        XCTAssertTrue(adapter.isFocusedWindowZoomed)
+
+        adapter.invalidate()
+        await session.shutdown()
+    }
+
     private func drain(_ controller: TmuxSessionController) async {
         await withCheckedContinuation { continuation in
             controller.queue.async {
