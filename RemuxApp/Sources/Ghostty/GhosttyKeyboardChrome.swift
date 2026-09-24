@@ -171,6 +171,7 @@ struct GhosttyKeyboardChrome<ComposerContent: View>: View {
     var onSplitDown: (() -> Void)? = nil
     var onToggleZoom: (() -> Void)? = nil
     var onLaunchByron: ((ByronProfile, ByronLaunchAction) -> Void)? = nil
+    var onOpenCommandPalette: (() -> Void)? = nil
     let composerContent: () -> ComposerContent
 
     var body: some View {
@@ -289,6 +290,13 @@ struct GhosttyKeyboardChrome<ComposerContent: View>: View {
                     } label: {
                         Label("New Window: \(profile.shortLabel)", systemImage: "rectangle.on.rectangle")
                     }
+                }
+            }
+            Section {
+                Button {
+                    onOpenCommandPalette?()
+                } label: {
+                    Label("Command Palette...", systemImage: "command")
                 }
             }
         } label: {

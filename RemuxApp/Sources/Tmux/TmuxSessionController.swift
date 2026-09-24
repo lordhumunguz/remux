@@ -81,6 +81,7 @@ final class TmuxSessionController: @unchecked Sendable {
         case setClientSize
         case sendInput
         case setPaneOption
+        case runCommand
     }
 
     enum SplitDirection: Sendable {
@@ -964,6 +965,18 @@ final class TmuxSessionController: @unchecked Sendable {
         }
     }
 
+    /// Runs an arbitrary tmux command line (e.g. run-shell, source-file, set-option)
+    /// through the control mode channel.
+    func requestRunCommand(_ command: String) {
+        queue.async { [self] in
+            enqueueOnWriter(
+                command: command,
+                request: .runCommand,
+                onSuccess: nil
+            )
+        }
+    }
+
     func reclaimActiveViewport() {
         queue.async { [self] in
             guard admitActiveViewportClaim(force: true) else { return }
@@ -1389,7 +1402,7 @@ final class TmuxSessionController: @unchecked Sendable {
         case .newWindow, .splitPane, .closePane, .closeWindow,
              .selectWindow, .selectPane, .zoomPane:
             true
-        case .copyMode, .setClientSize, .sendInput, .setPaneOption:
+        case .copyMode, .setClientSize, .sendInput, .setPaneOption, .runCommand:
             false
         }
     }

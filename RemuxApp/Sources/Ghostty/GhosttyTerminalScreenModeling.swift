@@ -195,6 +195,8 @@ protocol GhosttyTmuxActionModeling: ObservableObject {
     @discardableResult
     func enterFocusedTmuxCopyMode() -> GhosttyTmuxModelActionOutcome
 
+    func runTmuxServerCommand(_ command: String)
+
     // MARK: Topology action interaction effects
 
     func createTmuxWindowInteractionEffect() -> GhosttyTmuxTopologyActionInteractionEffect

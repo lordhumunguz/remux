@@ -83,6 +83,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
     @State private var trackpadDriver = GhosttyKeyboardCursorTrackpadDriver()
     @State private var trackpadFeedback = GhosttyKeyboardCursorTrackpad.FeedbackState.hidden
     @State private var isShortcutPalettePresented = false
+    @State private var isCommandPalettePresented = false
     @State private var isShortcutsSettingsPresented = false
     @State private var shortcutEditorRequest: ShortcutEditorRequest?
     @State private var isAttachmentPhotosPickerPresented = false
@@ -463,6 +464,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                             },
                             onLaunchByron: { profile, action in
                                 launchByronProfile(profile, action: action)
+                            },
+                            onOpenCommandPalette: {
+                                isCommandPalettePresented = true
                             }
                         ) {
                             selectedComposerBar()
@@ -602,6 +606,21 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                     initiallySelectedAttachmentID: request.attachmentID
                 )
                 .presentationDetents([.large])
+                .presentationDragIndicator(.visible)
+                .remuxSheetPresentationBackground()
+                .ghosttyTerminalChromePresentation(
+                    presentation.terminalTheme.terminalChromeColorScheme,
+                    chromeStyle: presentation.terminalTheme.terminalChromeStyle
+                )
+            }
+            .sheet(isPresented: $isCommandPalettePresented) {
+                TmuxCommandPaletteSheet(
+                    theme: presentation.terminalTheme,
+                    onSelectAction: { action in
+                        executeCommandPaletteAction(action)
+                    }
+                )
+                .presentationDetents([.medium, .large])
                 .presentationDragIndicator(.visible)
                 .remuxSheetPresentationBackground()
                 .ghosttyTerminalChromePresentation(
@@ -778,6 +797,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 onJumpToAgentWindow: jumpToAgentWindowFromComposer,
                 onLaunchByron: { profile, action in
                     launchByronProfile(profile, action: action)
+                },
+                onOpenCommandPalette: {
+                    isCommandPalettePresented = true
                 }
             )
         }
@@ -2324,6 +2346,40 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
         }
     }
 
+    private func executeCommandPaletteAction(_ action: TmuxCommandPaletteAction) {
+        if let serverCommand = action.serverCommand {
+            model.runTmuxServerCommand(serverCommand)
+            return
+        }
+        if let byronProfile = action.byronProfile {
+            launchByronProfile(byronProfile, action: .inCurrentPane)
+            return
+        }
+        switch action {
+        case .newWindow:
+            createNewWindow(event: "ui.palette.newWindow")
+        case .splitRight:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_RIGHT, event: "ui.palette.splitRight")
+        case .splitDown:
+            splitFocusedPane(GHOSTTY_SPLIT_DIRECTION_DOWN, event: "ui.palette.splitDown")
+        case .toggleZoom:
+            _ = model.toggleFocusedTmuxPaneZoom()
+        case .copyMode:
+            _ = model.enterFocusedTmuxCopyMode()
+        case .closePane:
+            closeFocusedPane()
+        case .clearScrollback:
+            _ = sendTerminalText("\u{000C}")
+        case .resumeAgent:
+            resumeFocusedAgent()
+        case .jumpToBlockedAgent:
+            _ = model.jumpToBlockedAgent()
+        case .saveSession, .restoreSession, .reloadConfig, .toggleAccordion, .toggleStatusBar,
+             .byronClaude, .byronWork, .byronPersonal, .byronMuse, .byronGrok:
+            break
+        }
+    }
+
     private func handleHardwareShortcut(_ shortcut: GhosttyHardwareShortcut) {
         switch shortcut {
         case .newWindow:
@@ -2356,6 +2412,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
             }
         case .clearScreen:
             _ = sendTerminalText("\u{000C}")
+        case .showCommandPalette:
+            isCommandPalettePresented = true
         }
     }
 
