@@ -388,4 +388,87 @@ final class TmuxPaneAgentStateTests: XCTestCase {
         RemuxUserNotificationDelegate.setNotificationActionHandler(nil)
         XCTAssertNil(received)
     }
+
+    func testAgentCompletedTrackerBaselineAndTurnDetection() {
+        var tracker = TmuxAgentCompletedTracker()
+        let t1 = Date(timeIntervalSince1970: 100_000)
+        let t2 = Date(timeIntervalSince1970: 100_500)
+
+        let initial: [TmuxPaneID: TmuxPaneAgentInfo] = [
+            1: TmuxPaneAgentInfo(state: .unseen, doneAt: t1),
+            2: TmuxPaneAgentInfo(state: .working),
+        ]
+
+        // 1. Initial snapshot only establishes baseline
+        XCTAssertEqual(
+            tracker.update(with: initial),
+            [],
+            "first snapshot establishes baseline and does not burst alerts"
+        )
+
+        // 2. Pane 2 finishes a turn with doneAt
+        let pane2Done: [TmuxPaneID: TmuxPaneAgentInfo] = [
+            1: TmuxPaneAgentInfo(state: .unseen, doneAt: t1),
+            2: TmuxPaneAgentInfo(state: .unseen, doneAt: t2),
+        ]
+        XCTAssertEqual(tracker.update(with: pane2Done), [2])
+
+        // 3. Same state does not re-alert
+        XCTAssertEqual(tracker.update(with: pane2Done), [])
+
+        // 4. Pane 1 runs another turn with newer doneAt
+        let t3 = Date(timeIntervalSince1970: 101_000)
+        let pane1NewDone: [TmuxPaneID: TmuxPaneAgentInfo] = [
+            1: TmuxPaneAgentInfo(state: .unseen, doneAt: t3),
+            2: TmuxPaneAgentInfo(state: .unseen, doneAt: t2),
+        ]
+        XCTAssertEqual(tracker.update(with: pane1NewDone), [1])
+
+        // 5. Reset clears baseline
+        tracker.reset()
+        XCTAssertEqual(
+            tracker.update(with: pane1NewDone),
+            [],
+            "reset establishes a new baseline"
+        )
+    }
+
+    func testAgentCompletedNotificationFormattingAndIdentifier() {
+        let identifier = TmuxAgentStateNotifier.completedIdentifier(sessionName: "dev", paneID: 3)
+        XCTAssertTrue(identifier.contains("dev"))
+        XCTAssertTrue(identifier.contains("3"))
+        XCTAssertTrue(identifier.hasPrefix("remux.agent-completed."))
+
+        let notifClaude = TmuxAgentCompletedNotification(
+            sessionName: "remux",
+            paneID: 1,
+            agentTool: "claude:work",
+            currentCommand: "claude",
+            currentPath: "~/Local/remux"
+        )
+        XCTAssertEqual(
+            TmuxAgentStateNotifier.completedTitle(for: notifClaude),
+            "Claude Code finished turn"
+        )
+        XCTAssertEqual(
+            TmuxAgentStateNotifier.completedBody(for: notifClaude),
+            "remux · ~/Local/remux: claude:work is ready for your next prompt."
+        )
+
+        let notifGeneric = TmuxAgentCompletedNotification(
+            sessionName: "ops",
+            paneID: 2,
+            agentTool: nil,
+            currentCommand: "zsh",
+            currentPath: ""
+        )
+        XCTAssertEqual(
+            TmuxAgentStateNotifier.completedTitle(for: notifGeneric),
+            "Agent finished turn"
+        )
+        XCTAssertEqual(
+            TmuxAgentStateNotifier.completedBody(for: notifGeneric),
+            "ops is ready for your next prompt."
+        )
+    }
 }

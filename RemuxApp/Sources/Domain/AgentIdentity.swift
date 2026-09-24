@@ -112,6 +112,10 @@ struct AgentResolution: Equatable, Sendable {
     /// Raw `agentTool` string from Byron if available (e.g. "claude:work", "muse").
     let rawTool: String?
 
+    var profileTag: String? {
+        profile
+    }
+
     /// Formatted Byron profile name: the raw tool string if present, or
     /// formatted as `<name>:<profile>` / `<displayName>`.
     var byronProfileName: String {

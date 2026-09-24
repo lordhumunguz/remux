@@ -275,6 +275,74 @@ struct TmuxAgentBlockedNotification: Equatable, Sendable {
     let currentPath: String
 }
 
+/// One alert for an agent turn that completed in a background or unviewed pane.
+struct TmuxAgentCompletedNotification: Equatable, Sendable {
+    let sessionName: String
+    let paneID: TmuxPaneID
+    let agentTool: String?
+    let currentCommand: String
+    let currentPath: String
+}
+
+/// Diffs consecutive agent-metadata snapshots to detect when an agent completes a turn.
+/// An agent completes when:
+/// 1) Its `doneAt` timestamp is newer than previously recorded, OR
+/// 2) Its state becomes `.unseen` while marked as done.
+/// The first snapshot after a reset establishes a baseline so attaching does not fire alerts.
+struct TmuxAgentCompletedTracker: Equatable, Sendable {
+    private(set) var knownDoneAt: [TmuxPaneID: Date] = [:]
+    private(set) var knownUnseenPanes: Set<TmuxPaneID> = []
+    private var hasBaseline = false
+
+    mutating func update(
+        with infos: [TmuxPaneID: TmuxPaneAgentInfo]
+    ) -> [TmuxPaneID] {
+        var newlyCompleted: [TmuxPaneID] = []
+
+        var currentDoneAt: [TmuxPaneID: Date] = [:]
+        var currentUnseen: Set<TmuxPaneID> = []
+
+        for (paneID, info) in infos {
+            if let doneAt = info.doneAt {
+                currentDoneAt[paneID] = doneAt
+            }
+            if info.state == .unseen {
+                currentUnseen.insert(paneID)
+            }
+
+            if hasBaseline {
+                let hasNewDoneAt: Bool
+                if let doneAt = info.doneAt {
+                    if let prev = knownDoneAt[paneID] {
+                        hasNewDoneAt = doneAt > prev
+                    } else {
+                        hasNewDoneAt = true
+                    }
+                } else {
+                    hasNewDoneAt = false
+                }
+
+                let newlyUnseen = info.state == .unseen && !knownUnseenPanes.contains(paneID)
+                if hasNewDoneAt || (newlyUnseen && info.isDone) {
+                    newlyCompleted.append(paneID)
+                }
+            }
+        }
+
+        knownDoneAt = currentDoneAt
+        knownUnseenPanes = currentUnseen
+        hasBaseline = true
+
+        return newlyCompleted.sorted()
+    }
+
+    mutating func reset() {
+        knownDoneAt.removeAll()
+        knownUnseenPanes.removeAll()
+        hasBaseline = false
+    }
+}
+
 /// Decides whether a newly blocked pane should raise a local notification:
 /// yes when the app is backgrounded, when another session is presented, or
 /// when the blocked pane is not the one on screen. The one case with no

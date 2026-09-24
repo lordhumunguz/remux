@@ -475,6 +475,38 @@ final class SessionSwitcherProjectionTests: XCTestCase {
         ConnectionLibrarySnapshot(servers: servers, workspaces: workspaces)
     }
 
+    func testProjectionPopulatesAgentSummariesMetadata() {
+        let server = makeServer(name: "Dev")
+        let workspace = makeWorkspace(server: server, name: "remux", lastOpenedAt: Date(timeIntervalSince1970: 100))
+        let session = makeSession(server: server, workspace: workspace, agentState: .unseen)
+
+        let resolution = AgentResolution(identity: .claudeCode, profile: "work", rawTool: "claude:work")
+        let summary = SessionAgentSummary(
+            identity: .claudeCode,
+            resolution: resolution,
+            quotaPercent: 42,
+            doneRelativeText: "5m",
+            isDone: true,
+            gitBranch: "feature/meta"
+        )
+
+        let projection = SessionSwitcherProjection(
+            snapshot: snapshot(servers: [server], workspaces: [workspace]),
+            activeSessions: [session],
+            selectedSessionID: workspace.id,
+            agentSummariesBySessionID: [workspace.id: summary]
+        )
+
+        XCTAssertEqual(projection.activeSessions.count, 1)
+        let item = projection.activeSessions[0]
+        XCTAssertEqual(item.agent, .claudeCode)
+        XCTAssertEqual(item.agentResolution?.byronProfileName, "claude:work")
+        XCTAssertEqual(item.quotaPercent, 42)
+        XCTAssertEqual(item.doneRelativeText, "5m")
+        XCTAssertTrue(item.isDone)
+        XCTAssertEqual(item.gitBranch, "feature/meta")
+    }
+
     private func makeWorkspace(
         server: SavedServer,
         name: String,

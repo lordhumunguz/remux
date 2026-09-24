@@ -348,9 +348,34 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                         )
                     }
                     .overlay(alignment: .topTrailing) {
-                        GhosttyKeyboardCursorTrackpadHUD(state: trackpadFeedback)
-                            .padding(.top, 12)
-                            .padding(.trailing, 12)
+                        VStack(alignment: .trailing, spacing: 6) {
+                            GhosttyKeyboardCursorTrackpadHUD(state: trackpadFeedback)
+
+                            if let focusedPane = screenProjection.viewport.focusedPane,
+                               shouldShowAgentHUD(for: focusedPane) {
+                                let resolution = AgentDetection.resolve(
+                                    tool: focusedPane.agentInfo.agentTool,
+                                    command: focusedPane.tmuxCurrentCommand
+                                )
+                                GhosttyAgentHUDPill(
+                                    resolution: resolution,
+                                    agentInfo: focusedPane.agentInfo
+                                ) {
+                                    Haptic.tap()
+                                    if focusedPane.agentInfo.isBlocked {
+                                        _ = model.jumpToBlockedAgent()
+                                    } else {
+                                        isCommandPalettePresented = true
+                                    }
+                                }
+                                .transition(.asymmetric(
+                                    insertion: .scale.combined(with: .opacity),
+                                    removal: .opacity
+                                ))
+                            }
+                        }
+                        .padding(.top, 12)
+                        .padding(.trailing, 12)
                     }
                     .onAppear {
                         traceTerminalViewportSnapshot(
@@ -614,8 +639,14 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 )
             }
             .sheet(isPresented: $isCommandPalettePresented) {
+                let focusedPane = model.terminalScreenPresentationProjection.viewport.focusedPane
+                let resolution = focusedPane.flatMap {
+                    AgentDetection.resolve(tool: $0.agentInfo.agentTool, command: $0.tmuxCurrentCommand)
+                }
                 TmuxCommandPaletteSheet(
                     theme: presentation.terminalTheme,
+                    profileTag: resolution?.profileTag ?? focusedPane?.agentInfo.agentTool,
+                    quotaPercent: focusedPane?.agentInfo.quotaPercent,
                     onSelectAction: { action in
                         executeCommandPaletteAction(action)
                     }
@@ -888,6 +919,9 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
     private func handleWindowSwipe(_ direction: GhosttyRuntimeSelectionDirection) {
         let traceStartedAt = GhosttyRuntimeTrace.flowTraceEnabled ? GhosttyRuntimeTrace.nowNanos() : nil
         let didFocus = model.focusAdjacentTmuxTopLevel(direction).isHandled
+        if didFocus {
+            Haptic.selection()
+        }
         if let traceStartedAt {
             GhosttyRuntimeTrace.flowEventIfActive(
                 "tmux.windowSwipe",
@@ -907,6 +941,16 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
             )
         }
         inputCoordinator.handleSelectionChange(isInputAvailable: isTerminalInputAvailable)
+    }
+
+    private func shouldShowAgentHUD(for pane: GhosttyTerminalViewportPresentationProjection.Pane) -> Bool {
+        guard !isActiveComposerPresented else { return false }
+        let info = pane.agentInfo
+        return info.isBlocked
+            || info.isWorking
+            || info.isDone
+            || info.quotaPercent != nil
+            || info.agentTool != nil
     }
 
     private func toggleKeyboardChrome() {
