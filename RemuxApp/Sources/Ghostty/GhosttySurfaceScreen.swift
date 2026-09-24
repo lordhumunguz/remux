@@ -348,7 +348,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                         )
                     }
                     .overlay(alignment: .topTrailing) {
-                        VStack(alignment: .trailing, spacing: 6) {
+                        ZStack(alignment: .topTrailing) {
                             GhosttyKeyboardCursorTrackpadHUD(state: trackpadFeedback)
 
                             if let focusedPane = screenProjection.viewport.focusedPane,
@@ -368,6 +368,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                                         isCommandPalettePresented = true
                                     }
                                 }
+                                .opacity(trackpadFeedback.isVisible ? 0 : 1)
+                                .animation(.spring(response: 0.22, dampingFraction: 0.78), value: trackpadFeedback.isVisible)
                                 .transition(.asymmetric(
                                     insertion: .scale.combined(with: .opacity),
                                     removal: .opacity

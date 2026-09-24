@@ -126,15 +126,24 @@ struct TmuxAgentProfilePillView: View {
             }
 
             if let doneRelativeText {
-                Text("✓ \(doneRelativeText)")
-                    .font(.system(size: 10, weight: .medium, design: .monospaced))
-                    .foregroundStyle(TmuxAgentStatePalette.done)
-                    .lineLimit(1)
-                    .padding(.horizontal, 4)
-                    .padding(.vertical, 1)
-                    .background(TmuxAgentStatePalette.done.opacity(0.18), in: Capsule())
-                    .accessibilityLabel("finished \(doneRelativeText)")
+                TmuxAgentCompletionPill(text: doneRelativeText)
             }
         }
+    }
+}
+
+/// Completion recency pill (e.g. `✓ 2m`), colored in Tokyo Night green.
+struct TmuxAgentCompletionPill: View {
+    let text: String
+
+    var body: some View {
+        Text("✓ \(text)")
+            .font(.system(size: 10, weight: .medium, design: .monospaced))
+            .foregroundStyle(TmuxAgentStatePalette.done)
+            .lineLimit(1)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 1)
+            .background(TmuxAgentStatePalette.done.opacity(0.18), in: Capsule())
+            .accessibilityLabel("finished \(text)")
     }
 }

@@ -786,13 +786,7 @@ private struct GhosttyPaneTopologyDiagram: View {
                     }
 
                     if let doneText = pane.agentInfo.doneRelativeText() {
-                        Text("✓ \(doneText)")
-                            .font(.system(size: 10, weight: .medium, design: .monospaced))
-                            .foregroundStyle(TmuxAgentStatePalette.done)
-                            .lineLimit(1)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(TmuxAgentStatePalette.done.opacity(0.18), in: Capsule())
+                        TmuxAgentCompletionPill(text: doneText)
                     }
                 }
                 .font(.system(size: 11, weight: .medium))
