@@ -52,6 +52,10 @@ final class GhosttyHardwareShortcutTests: XCTestCase {
             GhosttyHardwareKeyCommandFactory.resolve(input: "k", modifierFlags: .command),
             .clearScreen
         )
+        XCTAssertEqual(
+            GhosttyHardwareKeyCommandFactory.resolve(input: "p", modifierFlags: .command),
+            .showCommandPalette
+        )
     }
 
     func testResolveWindowIndexShortcuts() {

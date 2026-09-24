@@ -652,6 +652,7 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
         case .setClientSize: "resize"
         case .sendInput: "input"
         case .setPaneOption: "set pane option"
+        case .runCommand: "command"
         }
     }
 }
@@ -1200,6 +1201,11 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
         }
         controller.requestCopyMode(paneID: activeManagedPaneID)
         return .queued
+    }
+
+    func runTmuxServerCommand(_ command: String) {
+        guard let controller else { return }
+        controller.requestRunCommand(command)
     }
 
     // MARK: Selection sheet projections

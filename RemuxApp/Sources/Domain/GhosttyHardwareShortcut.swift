@@ -15,12 +15,19 @@ enum GhosttyHardwareShortcut: Equatable, Sendable {
     case jumpToBlockedAgent
     case toggleComposer
     case clearScreen
+    case showCommandPalette
 }
 
 enum GhosttyHardwareKeyCommandFactory {
     @MainActor
     static func makeCommands(action: Selector) -> [UIKeyCommand] {
         var commands: [UIKeyCommand] = [
+            UIKeyCommand(
+                title: "Command Palette",
+                action: action,
+                input: "p",
+                modifierFlags: .command
+            ),
             UIKeyCommand(
                 title: "New Window",
                 action: action,
@@ -130,6 +137,7 @@ enum GhosttyHardwareKeyCommandFactory {
         case "j": return .jumpToBlockedAgent
         case "e": return .toggleComposer
         case "k": return .clearScreen
+        case "p": return .showCommandPalette
         case "1"..."9":
             if let num = Int(input) {
                 return .selectWindow(num - 1)

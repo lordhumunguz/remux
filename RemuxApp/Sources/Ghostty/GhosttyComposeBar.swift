@@ -204,6 +204,7 @@ struct GhosttyComposeBar: View {
     let onResumeAgent: () -> Void
     let onJumpToAgentWindow: () -> Void
     var onLaunchByron: ((ByronProfile, ByronLaunchAction) -> Void)? = nil
+    var onOpenCommandPalette: (() -> Void)? = nil
 
     private var attachments: [GhosttyPendingAttachment] {
         composer.attachments
@@ -539,6 +540,15 @@ struct GhosttyComposeBar: View {
                     }
                     .accessibilityIdentifier("terminal.composer.byron.\(profile.id)")
                 }
+            }
+
+            Section {
+                Button {
+                    onOpenCommandPalette?()
+                } label: {
+                    Label("Command Palette...", systemImage: "command")
+                }
+                .accessibilityIdentifier("terminal.composer.commandPalette")
             }
         } label: {
             Image(systemName: "sparkles")
