@@ -64,6 +64,12 @@ struct GhosttyAgentHUDPill: View {
                 Text(agentName)
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(Color.primary)
+                if let model = agentInfo.modelDisplayText {
+                    Text(model)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                        .lineLimit(1)
+                }
                 Text(relative)
                     .font(.system(size: 10, design: .monospaced))
                     .foregroundStyle(TmuxAgentStatePalette.done)
@@ -77,6 +83,12 @@ struct GhosttyAgentHUDPill: View {
                     Text(":\(profile)")
                         .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                }
+                if let model = agentInfo.modelDisplayText {
+                    Text(model)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                        .lineLimit(1)
                 }
             }
         }

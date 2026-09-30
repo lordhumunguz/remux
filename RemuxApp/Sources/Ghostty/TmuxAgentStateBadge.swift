@@ -105,6 +105,7 @@ struct TmuxAgentProfilePillView: View {
     let resolution: AgentResolution
     var quotaPercent: Int? = nil
     var doneRelativeText: String? = nil
+    var modelText: String? = nil
     var prefersCompactProfile: Bool = false
 
     var body: some View {
@@ -119,6 +120,14 @@ struct TmuxAgentProfilePillView: View {
                 .foregroundStyle(TerminalSelectionSheetPalette.secondary)
                 .lineLimit(1)
                 .truncationMode(.tail)
+
+            if !prefersCompactProfile, let modelText, !modelText.isEmpty {
+                Text(modelText)
+                    .font(.system(size: 10, weight: .medium, design: .monospaced))
+                    .foregroundStyle(TerminalSelectionSheetPalette.tertiary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+            }
 
             if let quotaPercent {
                 TmuxAgentQuotaPill(percent: quotaPercent)

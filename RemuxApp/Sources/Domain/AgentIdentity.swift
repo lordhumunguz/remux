@@ -143,30 +143,30 @@ struct AgentResolution: Equatable, Sendable {
 /// Maps a pane's current command or Byron agent tool string to the coding agent
 /// running in it, if any.
 enum AgentDetection {
-    /// Maps a tool string from Byron (`@pane_agent_tool`) to the corresponding
-    /// AgentIdentity. Handles both plain tool names ("claude", "muse", "grok")
-    /// and profiled names ("claude:work", "claude:personal").
+    /// Maps a tool string from Byron's pane option (`@pane_agent_tool`).
+    /// Current Byron writes the registry short code (`cld:work`, `gk`, `ms`,
+    /// `agy:personal`). Older long names (`claude:work`, `grok`) still resolve.
     static func agent(forTool tool: String) -> AgentIdentity? {
         let base = tool.split(separator: ":", maxSplits: 1).first.map(String.init) ?? tool
         let token = base.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         switch token {
-        case "claude", "claude_code", "claude-code", "anthropic":
+        case "claude", "claude_code", "claude-code", "anthropic", "cld":
             return .claudeCode
-        case "codex", "chatgpt", "openai":
+        case "codex", "chatgpt", "openai", "cx":
             return .codex
-        case "opencode", "open-code":
+        case "opencode", "open-code", "oc":
             return .opencode
-        case "kimi", "kimi_code", "kimi-code", "moonshot":
+        case "kimi", "kimi_code", "kimi-code", "moonshot", "km":
             return .kimiCode
-        case "grok", "grok_build", "grok-build", "xai":
+        case "grok", "grok_build", "grok-build", "xai", "gk":
             return .grok
         case "goose":
             return .goose
-        case "cursor", "cursor-agent":
+        case "cursor", "cursor-agent", "cu":
             return .cursor
         case "antigravity", "agy", "gemini", "google":
             return .antigravity
-        case "muse", "muse_code", "muse-code":
+        case "muse", "muse_code", "muse-code", "ms":
             return .museCode
         default:
             return agent(forCommand: token)
@@ -218,7 +218,9 @@ enum AgentDetection {
         if cmd.contains("goose") { return .goose }
         if cmd.contains("cursor") { return .cursor }
         if cmd.contains("muse") { return .museCode }
-        if cmd.contains("gemini") || cmd.contains("antigravity") { return .antigravity }
+        if cmd.contains("gemini") || cmd.contains("antigravity") || cmd.contains("agy") {
+            return .antigravity
+        }
         return nil
     }
 }

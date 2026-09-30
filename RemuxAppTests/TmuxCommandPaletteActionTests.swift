@@ -36,6 +36,14 @@ final class TmuxCommandPaletteActionTests: XCTestCase {
         XCTAssertNil(TmuxCommandPaletteAction.newWindow.serverCommand)
     }
 
+    func testByronActionSubtitlesMatchProfileCommands() {
+        XCTAssertEqual(TmuxCommandPaletteAction.byronClaude.subtitle, ByronProfile.claude.command)
+        XCTAssertEqual(TmuxCommandPaletteAction.byronWork.subtitle, ByronProfile.work.command)
+        XCTAssertEqual(TmuxCommandPaletteAction.byronPersonal.subtitle, ByronProfile.personal.command)
+        XCTAssertEqual(TmuxCommandPaletteAction.byronMuse.subtitle, ByronProfile.muse.command)
+        XCTAssertEqual(TmuxCommandPaletteAction.byronGrok.subtitle, ByronProfile.grok.command)
+    }
+
     func testByronProfileMapping() {
         XCTAssertEqual(TmuxCommandPaletteAction.byronClaude.byronProfile, .claude)
         XCTAssertEqual(TmuxCommandPaletteAction.byronWork.byronProfile, .work)
