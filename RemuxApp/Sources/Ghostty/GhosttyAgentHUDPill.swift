@@ -1,21 +1,34 @@
 import SwiftUI
 
-/// Floating HUD pill in the terminal viewport showing current agent activity,
-/// Byron profile, quota usage, and completion recency. Tapping opens the Command Palette.
+/// Floating HUD pill in the terminal viewport. The top line is the project
+/// and branch. The line under it is the agent. Tapping opens the pane index.
 struct GhosttyAgentHUDPill: View {
     let resolution: AgentResolution?
     let agentInfo: TmuxPaneAgentInfo
+    var placeText: String? = nil
     let onTap: () -> Void
 
     var body: some View {
         Button(action: onTap) {
-            HStack(spacing: 6) {
-                statusIcon
-                labelView
-                if let quota = agentInfo.quotaPercent {
-                    TmuxAgentQuotaPill(percent: quota, font: .system(size: 9, weight: .bold, design: .monospaced))
+            VStack(alignment: .trailing, spacing: 2) {
+                if let placeText, !placeText.isEmpty {
+                    Text(placeText)
+                        .font(.system(size: 10, weight: .medium, design: .monospaced))
+                        .foregroundStyle(TerminalSelectionSheetPalette.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                }
+                if showsAgentRow {
+                    HStack(spacing: 6) {
+                        statusIcon
+                        labelView
+                        if let quota = agentInfo.quotaPercent {
+                            TmuxAgentQuotaPill(percent: quota, font: .system(size: 9, weight: .bold, design: .monospaced))
+                        }
+                    }
                 }
             }
+            .frame(maxWidth: 260, alignment: .trailing)
             .padding(.horizontal, 10)
             .padding(.vertical, 5)
             .background {
@@ -30,6 +43,15 @@ struct GhosttyAgentHUDPill: View {
         .buttonStyle(.plain)
         .accessibilityIdentifier("terminal.agent-hud")
         .accessibilityLabel(accessibilityLabel)
+    }
+
+    private var showsAgentRow: Bool {
+        agentInfo.isBlocked
+            || agentInfo.isWorking
+            || agentInfo.isDone
+            || resolution != nil
+            || agentInfo.agentTool != nil
+            || agentInfo.quotaPercent != nil
     }
 
     @ViewBuilder
@@ -111,6 +133,13 @@ struct GhosttyAgentHUDPill: View {
     }
 
     private var accessibilityLabel: String {
-        "\(agentName), \(agentInfo.state.rawValue), tap for command palette"
+        var parts: [String] = []
+        if let placeText, !placeText.isEmpty { parts.append(placeText) }
+        if showsAgentRow {
+            parts.append(agentName)
+            parts.append(agentInfo.state.rawValue)
+        }
+        parts.append("tap to show panes")
+        return parts.joined(separator: ", ")
     }
 }

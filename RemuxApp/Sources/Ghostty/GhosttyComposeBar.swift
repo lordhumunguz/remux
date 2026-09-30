@@ -203,6 +203,7 @@ struct GhosttyComposeBar: View {
     let onRunSnippet: (AgentPromptSnippet) -> Void
     let onResumeAgent: () -> Void
     let onJumpToAgentWindow: () -> Void
+    var onShowAgentPanes: (() -> Void)? = nil
     var onLaunchByron: ((ByronProfile, ByronLaunchAction) -> Void)? = nil
     var onOpenCommandPalette: (() -> Void)? = nil
 
@@ -509,8 +510,17 @@ struct GhosttyComposeBar: View {
                 }
             }
 
-            if (resumableAgent?.resumeCommand != nil) || canJumpToAgentWindow {
+            if (resumableAgent?.resumeCommand != nil) || canJumpToAgentWindow || onShowAgentPanes != nil {
                 Section("Agent") {
+                    if let onShowAgentPanes {
+                        Button {
+                            onShowAgentPanes()
+                        } label: {
+                            Label("All Panes", systemImage: "square.grid.2x2")
+                        }
+                        .accessibilityIdentifier("terminal.composer.agent-panes")
+                    }
+
                     if let agent = resumableAgent, agent.resumeCommand != nil {
                         Button {
                             onResumeAgent()

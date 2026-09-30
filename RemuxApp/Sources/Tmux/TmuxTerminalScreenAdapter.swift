@@ -300,6 +300,9 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
             rows: window.height
         )
         let focusedPaneID = effectiveFocusedPaneID
+        let knownProjects = RemuxProjectGrouping.observedProjects(
+            paths: topology.panes.map(\.currentPath)
+        )
         let panes = topology.panes
             .filter { $0.windowID == activeWindowID }
             .sorted { lhs, rhs in
@@ -324,7 +327,12 @@ final class TmuxTerminalScreenAdapter: ObservableObject {
                     tmuxCurrentCommand: pane.currentCommand,
                     tmuxCurrentPath: pane.currentPath,
                     agentInfo: latestPaneAgentInfo[pane.id] ?? .idle,
-                    resumableAgent: resumableAgent(for: pane)
+                    resumableAgent: resumableAgent(for: pane),
+                    placeText: AgentPlaceLabel.text(
+                        path: pane.currentPath,
+                        branch: latestPaneAgentInfo[pane.id]?.gitBranch,
+                        knownProjects: knownProjects
+                    )
                 )
             }
 
@@ -1319,6 +1327,26 @@ extension TmuxTerminalScreenAdapter: GhosttyTerminalScreenModeling {
             guard let paneID = identities.paneID(for: leafID) else { return false }
             return session.surfacesByPaneID[paneID] != nil
         }
+    }
+
+    func agentPaneIndexGroups() -> [AgentPaneIndexGroup] {
+        guard let topology = latestTopology else { return [] }
+        let windowsByID = Dictionary(
+            uniqueKeysWithValues: topology.windows.map { ($0.id, $0) }
+        )
+        let focusedPaneID = effectiveFocusedPaneID
+        let sources = topology.panes.map { pane in
+            AgentPaneIndexSource(
+                surfaceID: identities.surfaceID(for: pane.id),
+                windowSurfaceID: identities.surfaceID(for: pane.windowID),
+                windowName: windowsByID[pane.windowID]?.name ?? "",
+                path: pane.currentPath,
+                command: pane.currentCommand,
+                agentInfo: latestPaneAgentInfo[pane.id] ?? .idle,
+                isFocused: pane.id == focusedPaneID
+            )
+        }
+        return AgentPaneIndex.groups(from: sources)
     }
 
     func paneSelectionSheetRenderProjection(

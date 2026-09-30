@@ -180,9 +180,23 @@ final class RemuxProjectGroupingTests: XCTestCase {
     // MARK: Numbered clones
 
     func testNumberedCloneCollapsesToKnownBase() {
+        let context = RemuxProjectGrouping.Context(projectKey: "uni", worktreeDetail: nil)
         XCTAssertEqual(
             derive("/Users/fei/Local/uni2", known: Self.registry),
-            RemuxProjectGrouping.Context(projectKey: "uni", worktreeDetail: nil)
+            context
+        )
+        XCTAssertEqual(
+            RemuxProjectGrouping.collapsedDirectoryName(
+                path: "/Users/fei/Local/uni2/Sources",
+                context: context
+            ),
+            "uni2"
+        )
+        XCTAssertNil(
+            RemuxProjectGrouping.collapsedDirectoryName(
+                path: "/Users/fei/Local/uni",
+                context: context
+            )
         )
         XCTAssertEqual(
             derive("/Users/fei/Local/uni3", known: Self.registry),
