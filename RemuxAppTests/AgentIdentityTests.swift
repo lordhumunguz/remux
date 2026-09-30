@@ -13,6 +13,7 @@ final class AgentIdentityTests: XCTestCase {
             ("cursor", .cursor),
             ("gemini", .antigravity),
             ("antigravity", .antigravity),
+            ("agy", .antigravity),
             ("muse", .museCode),
         ]
         for (command, expected) in cases {
@@ -36,6 +37,10 @@ final class AgentIdentityTests: XCTestCase {
         XCTAssertEqual(AgentDetection.agent(forCommand: "codex-cli"), .codex)
         XCTAssertEqual(AgentDetection.agent(forCommand: "node-claude-wrapper"), .claudeCode)
         XCTAssertEqual(AgentDetection.agent(forCommand: "/usr/local/bin/opencode"), .opencode)
+        XCTAssertEqual(AgentDetection.agent(forCommand: "agy-1.2.3"), .antigravity)
+        XCTAssertEqual(AgentDetection.agent(forCommand: "grok-0.2.111-macos"), .grok)
+        XCTAssertEqual(AgentDetection.agent(forCommand: "muse-bin-1.4.0-"), .museCode)
+        XCTAssertNil(AgentDetection.agent(forCommand: "2.1.257"))
     }
 
     func testDetectionReturnsNilForNonAgentCommands() {
@@ -63,6 +68,17 @@ final class AgentIdentityTests: XCTestCase {
             ("cursor", .cursor, nil, "cursor", "cursor"),
             ("antigravity:custom", .antigravity, "custom", "antigravity:custom", "custom"),
             ("goose", .goose, nil, "goose", "goose"),
+            ("cld:work", .claudeCode, "work", "cld:work", "work"),
+            ("cld:personal", .claudeCode, "personal", "cld:personal", "personal"),
+            ("cld", .claudeCode, nil, "cld", "cld"),
+            ("cx", .codex, nil, "cx", "cx"),
+            ("oc", .opencode, nil, "oc", "oc"),
+            ("cu", .cursor, nil, "cu", "cu"),
+            ("gk", .grok, nil, "gk", "gk"),
+            ("km", .kimiCode, nil, "km", "km"),
+            ("agy", .antigravity, nil, "agy", "agy"),
+            ("agy:personal", .antigravity, "personal", "agy:personal", "personal"),
+            ("ms", .museCode, nil, "ms", "ms"),
         ]
 
         for c in cases {
@@ -146,6 +162,14 @@ final class AgentIdentityTests: XCTestCase {
         XCTAssertEqual(fallback.byronProfileName, "Grok")
         XCTAssertEqual(fallback.compactLabel, "Grok")
         XCTAssertEqual(fallback.glyphWithProfile, "𝕏 Grok")
+    }
+
+    func testClaudeProcessRenameResolvesFromByronShortCode() {
+        XCTAssertNil(AgentDetection.resolve(tool: nil, command: "2.1.257"))
+        let resolved = AgentDetection.resolve(tool: "cld:work", command: "2.1.257")
+        XCTAssertEqual(resolved?.identity, .claudeCode)
+        XCTAssertEqual(resolved?.profile, "work")
+        XCTAssertEqual(resolved?.compactLabel, "work")
     }
 
     func testGlyphsAreDistinct() {

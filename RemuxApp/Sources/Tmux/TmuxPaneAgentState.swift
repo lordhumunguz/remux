@@ -59,6 +59,30 @@ struct TmuxPaneAgentInfo: Equatable, Sendable {
         doneAt != nil
     }
 
+    /// Byron's composed pane label (`opus5[xhigh] W43%`, or `~…` for an
+    /// account guess), with the weekly percent removed. The quota pill
+    /// already shows that percent, and a bare `W43%` or `~` is not a model.
+    var modelDisplayText: String? {
+        Self.modelDisplayText(from: agentModel)
+    }
+
+    static func modelDisplayText(from label: String?) -> String? {
+        guard var text = label?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty else {
+            return nil
+        }
+        if text.range(of: #"^~?W\d+%$"#, options: .regularExpression) != nil {
+            return nil
+        }
+        if let range = text.range(of: #" W\d+%$"#, options: .regularExpression) {
+            text.removeSubrange(range)
+        }
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if text.isEmpty || text == "~" {
+            return nil
+        }
+        return text
+    }
+
     func doneRelativeText(now: Date = Date()) -> String? {
         guard let doneAt else { return nil }
         let elapsed = now.timeIntervalSince(doneAt)

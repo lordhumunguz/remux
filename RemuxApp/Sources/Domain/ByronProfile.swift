@@ -29,13 +29,16 @@ enum ByronProfile: String, CaseIterable, Identifiable, Sendable {
         }
     }
 
+    /// Typed into the pane's shell. These are the dotfiles launchers, not
+    /// Byron CLI subcommands: bare `byron` is the usage report, and `byron`
+    /// has no `c`, `muse`, or `grok` commands. `c` is Codex; Claude is `cc`.
     var command: String {
         switch self {
-        case .work: "byron c work"
-        case .personal: "byron c personal"
-        case .muse: "byron muse"
-        case .grok: "byron grok"
-        case .claude: "byron"
+        case .work: "cc work"
+        case .personal: "cc personal"
+        case .muse: "muse"
+        case .grok: "grok"
+        case .claude: "cc"
         }
     }
 

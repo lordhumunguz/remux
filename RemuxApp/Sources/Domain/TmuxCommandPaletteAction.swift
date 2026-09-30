@@ -78,11 +78,11 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
         case .copyMode: "Inspect scrollback history in copy mode"
         case .closePane: "Kill current active pane"
         case .clearScrollback: "Clear terminal buffer"
-        case .byronClaude: "byron"
-        case .byronWork: "byron c work"
-        case .byronPersonal: "byron c personal"
-        case .byronMuse: "byron muse"
-        case .byronGrok: "byron grok"
+        case .byronClaude: ByronProfile.claude.command
+        case .byronWork: ByronProfile.work.command
+        case .byronPersonal: ByronProfile.personal.command
+        case .byronMuse: ByronProfile.muse.command
+        case .byronGrok: ByronProfile.grok.command
         case .resumeAgent: "Send newline / resume waiting agent"
         case .jumpToBlockedAgent: "Focus pane requiring user confirmation"
         }

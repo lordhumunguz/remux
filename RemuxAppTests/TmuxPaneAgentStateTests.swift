@@ -470,5 +470,44 @@ final class TmuxPaneAgentStateTests: XCTestCase {
             TmuxAgentStateNotifier.completedBody(for: notifGeneric),
             "ops is ready for your next prompt."
         )
+
+        let notifShort = TmuxAgentCompletedNotification(
+            sessionName: "remux",
+            paneID: 4,
+            agentTool: "cld:work",
+            currentCommand: "2.1.257",
+            currentPath: "~/Local/remux"
+        )
+        XCTAssertEqual(
+            TmuxAgentStateNotifier.completedTitle(for: notifShort),
+            "Claude Code finished turn"
+        )
+    }
+
+    func testModelDisplayTextStripsWeeklyPercentAndKeepsAccountGuess() {
+        XCTAssertEqual(
+            TmuxPaneAgentInfo.modelDisplayText(from: "opus5[xhigh] W43%"),
+            "opus5[xhigh]"
+        )
+        XCTAssertEqual(
+            TmuxPaneAgentInfo.modelDisplayText(from: "~opus5[xhigh] W43%"),
+            "~opus5[xhigh]"
+        )
+        XCTAssertEqual(
+            TmuxPaneAgentInfo.modelDisplayText(from: "opus5[xhigh]"),
+            "opus5[xhigh]"
+        )
+        XCTAssertNil(TmuxPaneAgentInfo.modelDisplayText(from: "W43%"))
+        XCTAssertNil(TmuxPaneAgentInfo.modelDisplayText(from: "~W43%"))
+        XCTAssertNil(TmuxPaneAgentInfo.modelDisplayText(from: "~"))
+        XCTAssertNil(TmuxPaneAgentInfo.modelDisplayText(from: "  "))
+        XCTAssertNil(TmuxPaneAgentInfo.modelDisplayText(from: nil))
+
+        let info = TmuxPaneAgentInfo(
+            state: .working,
+            agentModel: "opus5[xhigh] W43%",
+            quotaPercent: 43
+        )
+        XCTAssertEqual(info.modelDisplayText, "opus5[xhigh]")
     }
 }

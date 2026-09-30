@@ -771,6 +771,7 @@ private struct GhosttyPaneTopologyDiagram: View {
                     resolution: resolution,
                     quotaPercent: pane.agentInfo.quotaPercent,
                     doneRelativeText: pane.agentInfo.doneRelativeText(),
+                    modelText: pane.agentInfo.modelDisplayText,
                     prefersCompactProfile: size.width < 140
                 )
             } else {
@@ -779,6 +780,14 @@ private struct GhosttyPaneTopologyDiagram: View {
                         .foregroundStyle(TerminalSelectionSheetPalette.secondary)
                         .lineLimit(1)
                         .truncationMode(.tail)
+
+                    if let model = pane.agentInfo.modelDisplayText {
+                        Text(model)
+                            .font(.system(size: 10, weight: .medium, design: .monospaced))
+                            .foregroundStyle(TerminalSelectionSheetPalette.tertiary)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
 
                     if let quota = pane.agentInfo.quotaPercent {
                         TmuxAgentQuotaPill(percent: quota)
