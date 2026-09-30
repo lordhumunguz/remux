@@ -71,6 +71,21 @@ enum RemuxProjectGrouping {
         return parse(directoryName: name, knownProjects: knownProjects)
     }
 
+    /// Directory name when a numbered clone was folded into `projectKey`
+    /// (`uni2` → `uni`). A worktree detail already names that checkout.
+    static func collapsedDirectoryName(
+        path: String,
+        context: Context,
+        homeDirectory: String? = nil
+    ) -> String? {
+        if let detail = context.worktreeDetail, !detail.isEmpty { return nil }
+        guard let name = projectDirectoryName(
+            path: path,
+            homeDirectory: homeDirectory
+        ), name != context.projectKey else { return nil }
+        return name
+    }
+
     /// Builds the observed project registry from pane paths: every project
     /// directory name seen, plus the base of every explicit worktree name.
     static func observedProjects(

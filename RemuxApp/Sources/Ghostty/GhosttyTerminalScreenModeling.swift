@@ -227,6 +227,7 @@ protocol GhosttyTmuxSelectionModeling: ObservableObject {
     func paneSelectionSheetRenderProjection(
         topLevelID: UUID
     ) -> GhosttyPaneSelectionSheetRenderProjection
+    func agentPaneIndexGroups() -> [AgentPaneIndexGroup]
 }
 
 @MainActor

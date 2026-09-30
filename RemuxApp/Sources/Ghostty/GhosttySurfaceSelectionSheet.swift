@@ -3,6 +3,7 @@ import SwiftUI
 enum GhosttySurfaceSelectionSheet: Identifiable {
     case windows(GhosttyPanePreviewSession)
     case panes(topLevelID: UUID)
+    case agents
 
     var id: String {
         switch self {
@@ -10,12 +11,14 @@ enum GhosttySurfaceSelectionSheet: Identifiable {
             "windows"
         case .panes(let topLevelID):
             "panes-\(topLevelID.uuidString)"
+        case .agents:
+            "agents"
         }
     }
 
     var paneTopLevelIDForTopologyValidation: UUID? {
         switch self {
-        case .windows:
+        case .windows, .agents:
             nil
         case .panes(let topLevelID):
             topLevelID

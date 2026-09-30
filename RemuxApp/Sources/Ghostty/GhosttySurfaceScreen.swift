@@ -359,14 +359,11 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                                 )
                                 GhosttyAgentHUDPill(
                                     resolution: resolution,
-                                    agentInfo: focusedPane.agentInfo
+                                    agentInfo: focusedPane.agentInfo,
+                                    placeText: focusedPane.placeText
                                 ) {
                                     Haptic.tap()
-                                    if focusedPane.agentInfo.isBlocked {
-                                        _ = model.jumpToBlockedAgent()
-                                    } else {
-                                        isCommandPalettePresented = true
-                                    }
+                                    showAgentPanes()
                                 }
                                 .opacity(trackpadFeedback.isVisible ? 0 : 1)
                                 .animation(.spring(response: 0.22, dampingFraction: 0.78), value: trackpadFeedback.isVisible)
@@ -578,7 +575,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                     sheet,
                     windowLayout: windowLayout,
                     paneTopologySize: paneTopologySize,
-                    contentHeight: contentHeight
+                    contentHeight: contentHeight,
+                    availableSize: screenProxy.size
                 )
                     .presentationDetents(
                         [.height(TerminalSelectionSheetLayout.sheetHeight(
@@ -828,6 +826,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 onRunSnippet: runSnippetFromComposer,
                 onResumeAgent: resumeFocusedAgentFromComposer,
                 onJumpToAgentWindow: jumpToAgentWindowFromComposer,
+                onShowAgentPanes: showAgentPanes,
                 onLaunchByron: { profile, action in
                     launchByronProfile(profile, action: action)
                 },
@@ -947,6 +946,7 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
 
     private func shouldShowAgentHUD(for pane: GhosttyTerminalViewportPresentationProjection.Pane) -> Bool {
         guard !isActiveComposerPresented else { return false }
+        if pane.placeText?.isEmpty == false { return true }
         let info = pane.agentInfo
         return info.isBlocked
             || info.isWorking
@@ -1662,9 +1662,15 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
         switch sheet {
         case .windows(let session):
             session.cancelAll()
-        case .panes, .none:
+        case .panes, .agents, .none:
             break
         }
+    }
+
+    private func showAgentPanes() {
+        guard !composer.isSubmitting else { return }
+        model.claimActiveTmuxViewportIfNeeded()
+        applySelectionSheetPresentation(.agents)
     }
 
     private func showPanes() {
@@ -2416,6 +2422,12 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
             closeFocusedPane()
         case .clearScrollback:
             _ = sendTerminalText("\u{000C}")
+        case .showAgentPanes:
+            // The palette sheet is still dismissing. Presenting immediately
+            // drops this sheet on iOS.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
+                showAgentPanes()
+            }
         case .resumeAgent:
             resumeFocusedAgent()
         case .jumpToBlockedAgent:
@@ -2516,6 +2528,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
             )
         case .panes:
             return paneTopologySize.height
+        case .agents:
+            return maximumContentHeight
         }
     }
 
@@ -2524,7 +2538,8 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
         _ sheet: GhosttySurfaceSelectionSheet,
         windowLayout: PanePreviewLayout.Metrics,
         paneTopologySize: CGSize,
-        contentHeight: CGFloat
+        contentHeight: CGFloat,
+        availableSize: CGSize
     ) -> some View {
         switch sheet {
         case .windows(let session):
@@ -2566,6 +2581,16 @@ struct GhosttySurfaceScreen<Model: GhosttyTerminalScreenModeling>: View {
                 },
                 onResumeAgent: { id in
                     resumeAgentInPaneFromSelectionSheet(id, topLevelID: topLevelID)
+                }
+            )
+        case .agents:
+            GhosttyAgentPaneIndexSheet(
+                groups: model.agentPaneIndexGroups(),
+                sessionName: presentation.sessionName,
+                contentHeight: contentHeight,
+                onSelect: selectTmuxPaneFromSelectionSheet,
+                onShowWindows: {
+                    showWindows(availableSize: availableSize)
                 }
             )
         }
@@ -2725,6 +2750,8 @@ private extension Optional where Wrapped == GhosttySurfaceSelectionSheet {
             return "windows"
         case .some(.panes):
             return "panes"
+        case .some(.agents):
+            return "agents"
         case .none:
             return "none"
         }

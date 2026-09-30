@@ -412,6 +412,7 @@ struct GhosttyTerminalViewportPresentationProjection: Equatable {
         let tmuxCurrentPath: String
         let agentInfo: TmuxPaneAgentInfo
         var resumableAgent: AgentIdentity? = nil
+        var placeText: String? = nil
     }
 
     static let empty = GhosttyTerminalViewportPresentationProjection(

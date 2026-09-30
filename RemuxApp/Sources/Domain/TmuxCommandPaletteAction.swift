@@ -19,6 +19,7 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
     case copyMode
     case closePane
     case clearScrollback
+    case showAgentPanes
     case byronClaude
     case byronWork
     case byronPersonal
@@ -33,7 +34,7 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
         switch self {
         case .saveSession, .restoreSession, .reloadConfig, .toggleAccordion, .toggleStatusBar:
             .sessionAndServer
-        case .newWindow, .splitRight, .splitDown, .toggleZoom, .copyMode, .closePane, .clearScrollback:
+        case .newWindow, .splitRight, .splitDown, .toggleZoom, .copyMode, .closePane, .clearScrollback, .showAgentPanes:
             .windowAndLayout
         case .byronClaude, .byronWork, .byronPersonal, .byronMuse, .byronGrok, .resumeAgent, .jumpToBlockedAgent:
             .byronAgents
@@ -54,6 +55,7 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
         case .copyMode: "Enter Copy Mode"
         case .closePane: "Close Current Pane"
         case .clearScrollback: "Clear Screen"
+        case .showAgentPanes: "Show Panes"
         case .byronClaude: "Launch Claude (default)"
         case .byronWork: "Launch Claude (work)"
         case .byronPersonal: "Launch Claude (personal)"
@@ -78,6 +80,7 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
         case .copyMode: "Inspect scrollback history in copy mode"
         case .closePane: "Kill current active pane"
         case .clearScrollback: "Clear terminal buffer"
+        case .showAgentPanes: "Projects, branches, and who needs you"
         case .byronClaude: ByronProfile.claude.command
         case .byronWork: ByronProfile.work.command
         case .byronPersonal: ByronProfile.personal.command
@@ -102,6 +105,7 @@ enum TmuxCommandPaletteAction: String, CaseIterable, Identifiable, Sendable {
         case .copyMode: "text.magnifyingglass"
         case .closePane: "xmark.circle"
         case .clearScrollback: "trash"
+        case .showAgentPanes: "square.grid.2x2"
         case .byronClaude: "sparkles"
         case .byronWork: "briefcase.fill"
         case .byronPersonal: "person.fill"
